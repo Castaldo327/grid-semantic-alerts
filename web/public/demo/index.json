@@ -4,11 +4,5 @@
   "alert_id": "ercot_scarcity_approach",
   "scenario": "record_load",
   "file": "demo/ercot_scarcity_approach.json"
- },
- {
-  "preset": "B",
-  "alert_id": "whole_grid_shortage_price_spike",
-  "scenario": "local_spike",
-  "file": "demo/whole_grid_shortage_price_spike.json"
  }
 ]

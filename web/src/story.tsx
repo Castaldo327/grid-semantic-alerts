@@ -1,6 +1,6 @@
 // The two charts that tell each scenario's story, on one shared time axis:
 //   ThresholdChart: the series today's threshold alert watches, its threshold line, and its firings.
-//   ProbChart:      the semantic alert's main probability, its cutoff, and its firings.
+//   ProbChart:      the sentence alert's main probability, its cutoff, and its firings.
 
 import { Crosshair, HitLayer, MARGIN, XAxis, type XScale } from "./chart";
 
@@ -120,7 +120,7 @@ export function ProbChart({ X, t, idx, onIdx, onPick, values, cutoff, ruleTrue, 
       <path d={line} className="line sem" />
       {cutoff !== null && <>
         <line className="limit sem" x1={MARGIN.left} x2={X.width - MARGIN.right} y1={y(cutoff)} y2={y(cutoff)} />
-        <text className="limit-label sem" x={MARGIN.left + 6} y={y(cutoff) - 7}>fires above {Math.round(cutoff * 100)}%</text>
+        <text className="limit-label sem" x={MARGIN.left + 6} y={y(cutoff) - 7}>alert needs {Math.round(cutoff * 100)}% or more</text>
       </>}
       <Crosshair X={X} idx={idx} top={TOP} bottom={TOP + plotH} />
       <circle cx={X.x(idx)} cy={y(values[idx])} r={5} className="now sem" />

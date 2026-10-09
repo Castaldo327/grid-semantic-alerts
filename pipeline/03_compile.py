@@ -29,19 +29,6 @@ PRESETS = {
                     "output; battery discharge and its trend; net load (demand minus wind and solar); hub real-time "
                     "price vs. day-ahead; non-spinning reserve price; physical responsive capability (operating "
                     "reserves) and its trend.",
-        "extra_rule": None,
-    },
-    "B": {
-        "scenario": "local_spike",
-        "sentence": "Alert me when prices spike because the whole grid is short, not because one area is congested.",
-        "baseline": Threshold(series="node_price", op=">", value=1000),
-        "baseline_label": "RHESS2_ESS1 price > $1,000/MWh",
-        "snapshot": "time of day; the real-time price at one battery node and its trend; the ERCOT hub average "
-                    "price; the node-minus-hub spread; a load zone price; a second hub price; the binding "
-                    "transmission constraints with shadow prices, flows and limits; physical responsive capability "
-                    "(operating reserves); ERCOT demand.",
-        "extra_rule": "At least one question must separate a local or congestion-driven price spike from a "
-                      "system-wide supply shortage (e.g. a choice question with options for each).",
     },
 }
 
@@ -109,19 +96,7 @@ def user_prompt(p: dict, intent: dict) -> str:
                 f'... right now?") with one option for "{intent["want"]}" (want), one for "{intent["avoid"]}" '
                 f'(avoid), and "nothing unusual".')
     msg += f"\n\nEach snapshot describes: {p['snapshot']}"
-    if p["extra_rule"]:
-        msg += f"\n\nAlso: {p['extra_rule']}"
     return msg
-
-
-def separates_local_from_system(a: CompiledAlert) -> bool:
-    for q in a.questions:
-        opts = " | ".join(q.options).lower() + " " + q.text.lower()
-        if any(k in opts for k in ("local", "congest", "transmission")) and any(
-            k in opts for k in ("system", "grid-wide", "statewide", "shortage", "whole grid")
-        ):
-            return True
-    return False
 
 
 STOP = {"the", "a", "an", "is", "of", "to", "in", "due", "toward", "towards", "ercot", "prices", "price", "spike", "spikes"}
@@ -179,8 +154,6 @@ def compile_preset(key: str, p: dict) -> dict:
                         f'contrast is inverted: "want" must be the option for "{intent["want"]}" and "avoid" the '
                         f'option for "{intent["avoid"]}", and the rule must rule out the avoid option'
                     )
-            if p["extra_rule"] and not separates_local_from_system(alert):
-                raise ValueError("no question separates a local/congestion spike from a system-wide shortage")
             # Dry run: the decision model must accept every question.
             luna.decide("It is noon in Texas.", alert.questions)
         except (json.JSONDecodeError, ValidationError, ValueError) as exc:

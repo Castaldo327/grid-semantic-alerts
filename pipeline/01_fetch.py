@@ -18,12 +18,9 @@ Dataset IDs and columns come from the API catalog (data/raw/catalog_ercot.json, 
   ercot_sced_system_lambda        per-SCED-run system lambda: the system-wide energy price
   ercot_mcpc_sced                 per-SCED-run ancillary prices (exists from 2025-12-05, RTC+B)
   ercot_as_prices                 hourly day-ahead ancillary prices (both scenarios)
-  ercot_shadow_prices_sced        binding transmission constraints per SCED run
-  ercot_real_time_adders_and_reserves
-                                  per-SCED-run physical responsive capability (PRC), the reserve
-                                  measure ERCOT's EEA triggers use, plus the ORDC price adder.
-                                  Empty after RTC+B (2025-12-05), so scenario 1 uses ercot_prc
-  ercot_prc                       PRC published every ~10 s; 02_state averages it to 5 minutes
+  ercot_prc                       physical responsive capability (PRC), the reserve measure ERCOT's
+                                  EEA triggers use, published every ~10 s; 02_state averages it
+                                  to 5 minutes
 """
 
 import pandas as pd
@@ -31,7 +28,6 @@ import pandas as pd
 from pipeline.common import SCENARIOS, CachedGridStatus, log
 
 HUB = "HB_HUBAVG"
-S2_LOCATIONS = ["RHESS2_ESS1", "LZ_LCRA", "HB_HUBAVG", "HB_SOUTH"]
 
 
 def fetch_record_load(gs: CachedGridStatus) -> None:
@@ -59,27 +55,9 @@ def fetch_record_load(gs: CachedGridStatus) -> None:
     )
 
 
-def fetch_local_spike(gs: CachedGridStatus) -> None:
-    s = SCENARIOS["local_spike"]
-    start, end = s.utc_window()
-    w = dict(start=start, end=end)
-    loc = dict(filter_column="location", filter_value=S2_LOCATIONS, filter_operator="in")
-    gs.get(s.id, "lmp_sced", "ercot_lmp_by_settlement_point", **w, **loc)
-    gs.get(s.id, "spp_rt15", "ercot_spp_real_time_15_min", **w, **loc)
-    gs.get(s.id, "hub_spp_da", "ercot_spp_day_ahead_hourly", **w, filter_column="location", filter_value=HUB)
-    gs.get(s.id, "shadow_prices", "ercot_shadow_prices_sced", **w)
-    gs.get(s.id, "system_lambda", "ercot_sced_system_lambda", **w)
-    gs.get(s.id, "load", "ercot_load", **w)
-    gs.get(s.id, "fuel_mix", "ercot_fuel_mix", **w)
-    gs.get(s.id, "storage", "ercot_energy_storage_resources", **w)
-    gs.get(s.id, "as_prices_dam", "ercot_as_prices", **w)
-    gs.get(s.id, "reserves", "ercot_real_time_adders_and_reserves", **w)
-
-
 def main() -> None:
     gs = CachedGridStatus()
     fetch_record_load(gs)
-    fetch_local_spike(gs)
     log.info("fetch done: %d uncached API requests", gs.requests)
 
 

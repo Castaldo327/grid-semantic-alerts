@@ -3,14 +3,13 @@
     .venv/bin/python -m pipeline.serve            # http://127.0.0.1:8000
     cd web && VITE_LIVE_API=http://127.0.0.1:8000 npm run dev
 
-POST /run {"sentence": "...", "scenario": "record_load" | "local_spike"}: gpt-6-luna compiles the
+POST /run {"sentence": "...", "scenario": "record_load"}: gpt-6-luna compiles the
 sentence (same validator and retries as 03_compile), the Decisions API answers every interval of
 that scenario's cached state, and the rule + 30-minute cooldown decide the firings.
 """
 
 import importlib
 import json
-import re
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -42,8 +41,7 @@ def run(req: RunRequest) -> dict:
     if not 8 <= len(sentence) <= 300:
         raise HTTPException(400, "write the alert as one sentence (8-300 characters)")
     base = BY_SCENARIO[req.scenario]
-    preset = {**base, "sentence": sentence,
-              "extra_rule": base["extra_rule"] if re.search(r"local|congest|one area", sentence, re.I) else None}
+    preset = {**base, "sentence": sentence}
     try:
         alert = compile_mod.compile_preset("live", preset)
     except SystemExit as exc:

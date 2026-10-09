@@ -26,8 +26,6 @@ DATASETS = {
     "record_load": ["ercot_load", "ercot_load_forecast_by_forecast_zone", "ercot_fuel_mix", "ercot_energy_storage_resources",
                     "ercot_lmp_by_settlement_point", "ercot_spp_day_ahead_hourly", "ercot_sced_system_lambda",
                     "ercot_mcpc_sced", "ercot_prc"],
-    "local_spike": ["ercot_lmp_by_settlement_point", "ercot_shadow_prices_sced", "ercot_real_time_adders_and_reserves",
-                    "ercot_sced_system_lambda", "ercot_spp_day_ahead_hourly", "ercot_load", "ercot_fuel_mix"],
 }
 
 EXPLAIN_SYSTEM = """You write one- or two-sentence notes for power traders about an ERCOT grid snapshot. \
@@ -72,7 +70,7 @@ def explain(kind: str, alert: dict, prose: str, ans: dict, questions: list[Quest
         task = (f'A simple threshold alert ({alert["baseline_label"]}) fired on this snapshot, but the alert '
                 f'"{alert["sentence"]}" did not. In 1-2 sentences, say what in the snapshot suggests this is not '
                 f"what that alert is looking for")
-        task += (", naming the binding constraint if one is relevant." if alert["scenario"] == "local_spike" else ".")
+        task += "."
         task += " If the snapshot doesn't clearly support that, say so."
     user = (f"Snapshot:\n{prose}\n\nA decision model gave these probabilities (context only; don't quote them):\n"
             f"{answers_text(questions, ans)}\n\n{task}")
@@ -148,7 +146,6 @@ def compose(alert: dict, state: dict, dec: dict, *, explain_on: bool = True) -> 
         "t": state["t"],
         "series": state["series"],
         "prose": [it["prose"] for it in state["intervals"]],
-        "constraints": [it.get("constraints") for it in state["intervals"]] if state["scenario"] == "local_spike" else None,
         "decisions": [r["answers"] for r in rows],
         "decision_latency_ms": [r["latency_ms"] for r in rows],
         "rule_true": sem_true,

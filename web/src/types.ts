@@ -30,17 +30,6 @@ export interface Explanation {
   meta_terms?: string[];
 }
 
-export interface Constraint {
-  constraint: string;
-  contingency: string;
-  from: string;
-  to: string;
-  shadow_price: number;
-  limit: number;
-  flow: number;
-  near_node: boolean;
-}
-
 export interface Stats {
   calls: number;
   questions_per_call: number;
@@ -68,7 +57,7 @@ export interface Demo {
   };
   compile: { model: Record<string, string>; attempts: number; errors: string[] };
   scenario: {
-    scenario: "record_load" | "local_spike";
+    scenario: "record_load";
     title: string;
     day: string;
     timezone: string;
@@ -81,7 +70,6 @@ export interface Demo {
   t: string[];
   series: Record<string, (number | null)[]>;
   prose: string[];
-  constraints: Constraint[][] | null;
   decisions: Record<string, AnswerJSON>[];
   decision_latency_ms: number[];
   rule_true: boolean[];

@@ -45,13 +45,6 @@ SCENARIOS = {
         context_start="2026-07-21",
         blog_url="https://blog.gridstatus.io/ercot-record-july-2026",
     ),
-    "local_spike": Scenario(
-        id="local_spike",
-        title="Local spike, not system-wide",
-        day="2025-02-19",
-        context_start="2025-02-19",
-        blog_url="https://blog.gridstatus.io/exploring-extreme-prices-in-ercot-with-grid-status",
-    ),
 }
 
 
