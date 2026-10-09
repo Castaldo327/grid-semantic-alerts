@@ -132,6 +132,25 @@ export function cooldown(flags: boolean[], t: string[], minutes: number): number
   return out;
 }
 
+export type Cmp = Extract<Node, { k: "cmp" }>;
+
+/** Every comparison in the rule, left to right. */
+export function leaves(n: Node): Cmp[] {
+  if (n.k === "cmp") return [n];
+  if (n.k === "not") return leaves(n.a);
+  return [...leaves(n.a), ...leaves(n.b)];
+}
+
+const SYMBOL: Record<string, string> = { ">=": "≥", ">": ">", "<=": "≤", "<": "<", "==": "=", "!=": "≠" };
+
+/** One comparison in words: "yes ≥ 70%", "“scarcity approaching” ≥ 60%", "top answer ≠ “nothing unusual”". */
+export function describeLeaf(c: Cmp, q: Question): string {
+  const subject = c.option !== null ? `“${c.option}”` : q.kind === "probability" ? "yes" : q.kind === "score" ? "level" : "top answer";
+  const value = typeof c.value === "string" ? `“${c.value}”`
+    : q.kind === "score" && c.option === null ? String(c.value) : `${Math.round(c.value * 100)}%`;
+  return `${subject} ${SYMBOL[c.op] ?? c.op} ${value}`;
+}
+
 /** Numeric cutoffs the rule applies to a question's main value (e.g. P(yes) >= 0.6), for drawing. */
 export function cutoffs(n: Node, qid: string, option: string | null = null): number[] {
   if (n.k === "cmp") return n.qid === qid && n.option === option && typeof n.value === "number" ? [n.value] : [];

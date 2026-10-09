@@ -60,10 +60,10 @@ Both alerts use a 30-minute re-fire cooldown, like Grid Status's Notification Ti
   between about 0.1 and 1.0 across the day. The rule held only because it also requires the main
   question, which stayed low. The 7:00 AM spike in the main question (0.63) stopped just short of
   the 0.7 cutoff.
-- **Refusals.** The shipped run had 0 refusals. In live mode, though, the question "Is physical
-  responsive capability, or operating reserves, falling?" was refused on 131 of 288 snapshots,
-  with no reason given. The rule treats a refusal as "not firing". A product would need to
-  surface refusals; live mode now does.
+- **Refusals.** The shipped run had 0 refusals. In an earlier local live mode, though, the question
+  "Is physical responsive capability, or operating reserves, falling?" was refused on 131 of 288
+  snapshots, with no reason given. The rule treats a refusal as "not firing". A product would need
+  to surface refusals; the Try it page reports them (see the October week below).
 - **Wording moves answers.** In the what-if, the first simulated snapshot text said "Net load
   (demand minus wind and solar)" after adding the removed battery output to it. That label was
   wrong. Fixing the label alone changed the simulated run from 2 firings to 5.
@@ -77,6 +77,51 @@ two numbers, not what ERCOT would have done. The simulated alert fired 5 times (
 at 6 PM and from 0.35 to 0.46 at 7 PM, then matched the real run after 9 PM. Takeaway: the model
 leans on prices and reserves much more than on battery and net-load numbers. That's reasonable,
 but it means a battery-shortfall scenario needs price and reserve consequences to register.
+
+## Five more weeks, hourly (the Try it page)
+
+The Try it page runs alerts on hourly snapshots of any week from Dec 5, 2025 to Oct 8, 2026. Each
+of its five suggested weeks has a saved run of an example alert, made with the page's own code
+(`web/scripts/save_runs.ts`, cached in `data/cache/luna-web/`): 168 Decisions API calls per week,
+79,000 to 91,000 input tokens ($0.008 to $0.009), median 168 to 198 ms. Each hourly snapshot gives
+the hour's average and its extreme (price high and low, reserve low), so a short spike still
+shows. Each alert was compiled fresh, so these are not the July 22 page's compiled alert.
+
+| week | example alert | rule met |
+|---|---|---|
+| Jul 19–25 | "Tell me when ERCOT is actually heading toward scarcity, not just setting demand records." | 14 hours: 7–9 PM Jul 19 and 20, 7–11 PM Jul 21, 6–11 PM Jul 22, 7–8 PM Jul 25 |
+| Aug 20–26 | "Warn me when the grid is running short of reserves, not just when it's hot." | 10 hours: 10 PM–12 AM Aug 22, 7–10 PM Aug 23, 7–8 PM Aug 24, 7–11 PM Aug 26 |
+| Jan 22–28 | "Tell me when a price spike comes with reserves running low." | 2 hours: 6–8 AM Jan 28 |
+| Feb 18–24 | "Let me know when there's so much wind and solar that prices go negative." | 11 hours, all with a negative hourly average; 9 on Feb 24 |
+| Oct 2–8 | "Warn me when weak wind is leaving the grid tight in the evening." | 16 hours, in the evenings of Oct 5 to 8 |
+
+- **The record afternoon stayed quiet again.** Across the week, P(scarcity) was 0.13 to 0.68
+  between 2 and 6 PM. At 4 PM on July 22 (91.3 GW peak, reserves 17.4 GW) it was 0.26. Unlike the
+  5-minute run, the contrast question leaned the right way there: "setting demand records" 0.42,
+  "heading toward scarcity" 0.36.
+- **It also alerted on evenings the July 22 page doesn't cover.** Jul 21 is defensible (reserves
+  down to 6.9 GW, non-spin $111). Jul 19 is closer to a false alarm: reserves never went below
+  9.0 GW and the hub stayed under $107.
+- **January: a score question did what the contrast question couldn't.** The main question,
+  "Is the hub real-time price unusually high while ERCOT operating reserves are low?", passed 0.7
+  in 66 of 168 hours, including Jan 25 at 6 PM ($938 with 13.8 GW of reserves to spare, P = 0.95).
+  The second question, how scarce reserves are on a 0-3 scale, put that hour at 0.54 and Jan 28 at
+  6 and 7 AM (reserves 6.2 and 5.7 GW, hub up to $1,350) at 1.96 and 2.03, so only the real
+  shortage alerted. A first wording, "...means the grid is actually short, not just that power is
+  expensive", never fired: its main question passed 0.7 in 4 hours, including Jan 28 at 6 and 7 AM
+  (0.75 and 0.72), and at all four the contrast question chose "expensive power without shortage"
+  at 0.99 or more. That's the July 22 contrast-question failure again, and it decided the outcome
+  this time.
+- **Hourly snapshots hide short events.** April has the deepest negative prices in the range (down
+  to -$97/MWh on Apr 14), but they were 5-minute dips inside hours that averaged above zero. On
+  Apr 14–20 the negative-price alert fired once. Its second question, "Did prices fall below $0
+  during this hour?", answered 1.00 at all six hours with a sub-zero low, but the main question
+  read the hourly average. February's wind kept the average below zero for 25 hours, and the alert
+  met its rule in 11 of them.
+- **Refusals came from a question that didn't apply.** In October, the main question, "Is weak wind
+  leaving ERCOT's grid tight during this evening hour?", was declined 31 times, all between 4 AM
+  and 2 PM. The rule counts those hours as not met, which is the right outcome here. The page
+  reports the count.
 
 ## Data checks against the Grid Status blog post
 
@@ -115,6 +160,9 @@ none of that code or output remains.
 
 - One day is a demonstration, not an evaluation. No cutoff was tuned on labeled data; the cutoffs
   are whatever the compile chose.
-- The page replays a precomputed run. Live mode (`pipeline/serve.py`) is local only.
+- The July 22 page replays a precomputed run. The Try it page runs live with a visitor's own key;
+  its five saved runs are single samples, and gpt-6-luna doesn't repeat itself exactly.
+- The unusual-day flags on the Try it page are fixed thresholds. They point at weeks worth trying;
+  they are not labels to score an alert against.
 - Explanations are checked for invented numbers and for talking about the model, not for
   reasoning quality.

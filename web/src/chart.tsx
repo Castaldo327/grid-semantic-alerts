@@ -1,14 +1,15 @@
-// Hand-rolled SVG time-series panels on one shared x axis. One index (the scrubber) drives the
-// crosshair in every panel; the legend doubles as the value readout at that index.
+// Small SVG time-series panels stacked on one shared x axis. One index drives the crosshair in every
+// panel: hovering moves it, clicking pins it. The July 22 page uses 288 five-minute points, the
+// "Try it" page 168 hourly ones.
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-export const MARGIN = { left: 52, right: 14 };
-const TZ = "America/Chicago";
+export const M = { left: 40, right: 8 };
+const MARK = 16; // marker lane above the plot when a panel has firing markers
 
 export function useWidth<T extends HTMLElement>(): [React.RefObject<T>, number] {
   const ref = useRef<T>(null);
-  const [w, setW] = useState(320);
+  const [w, setW] = useState(640);
   useEffect(() => {
     if (!ref.current) return;
     const ro = new ResizeObserver(([e]) => setW(Math.max(280, Math.floor(e.contentRect.width))));
@@ -23,167 +24,186 @@ export interface XScale {
   invert: (px: number) => number;
   width: number;
   n: number;
+  step: number;
 }
 
-export function makeX(t: string[], width: number): XScale {
-  const ms = t.map((s) => Date.parse(s));
-  const t0 = ms[0];
-  const span = 24 * 3600_000;
-  const inner = width - MARGIN.left - MARGIN.right;
-  const step = 5 * 60_000;
+export function makeX(n: number, width: number): XScale {
+  const step = (width - M.left - M.right) / Math.max(1, n - 1);
   return {
-    x: (i) => MARGIN.left + ((ms[i] - t0) / span) * inner,
-    invert: (px) => Math.max(0, Math.min(ms.length - 1, Math.round((((px - MARGIN.left) / inner) * span) / step))),
+    x: (i) => M.left + i * step,
+    invert: (px) => Math.max(0, Math.min(n - 1, Math.round((px - M.left) / step))),
     width,
-    n: ms.length,
+    n,
+    step,
   };
 }
 
-export const clock = (iso: string, withMin = true) =>
-  new Date(iso).toLocaleTimeString("en-US", { timeZone: TZ, hour: "numeric", ...(withMin ? { minute: "2-digit" } : {}) });
+export interface Tick { i: number; label: string; mark?: boolean; title?: string }
 
-export interface Series {
-  key: string;
-  label: string;
-  color: string; // CSS var
-  values: (number | null)[];
-  format: (v: number) => string;
-  note?: string; // e.g. "hourly, forward-filled"
+/** Round tick values inside [lo, hi]: the largest round step that still gives at least two. */
+function niceTicks(lo: number, hi: number): number[] {
+  const mag = 10 ** Math.floor(Math.log10((hi - lo) / 3 || 1));
+  for (const m of [10, 5, 2.5, 2, 1, 0.5]) {
+    const step = m * mag;
+    const out: number[] = [];
+    for (let v = Math.ceil(lo / step - 1e-9) * step; v <= hi + 1e-9; v += step) out.push(+v.toFixed(6));
+    if (out.length >= 2) return out;
+  }
+  return [lo, hi];
 }
 
-interface YScale {
-  y: (v: number) => number;
-  ticks: number[];
-  fmt: (v: number) => string;
-}
-
-function niceLinear(min: number, max: number, h: number, top: number, fmt: (v: number) => string, zero: boolean): YScale {
-  if (zero) min = Math.min(0, min);
-  if (max === min) max = min + 1;
-  const raw = (max - min) / 4;
-  const mag = 10 ** Math.floor(Math.log10(raw));
-  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= raw)!;
-  const lo = Math.floor(min / step) * step;
-  const hi = Math.ceil(max / step) * step;
-  const ticks: number[] = [];
-  for (let v = lo; v <= hi + step / 2; v += step) ticks.push(+v.toFixed(6));
-  return { y: (v) => top + h - ((v - lo) / (hi - lo)) * h, ticks, fmt };
-}
-
-function niceLog(min: number, max: number, h: number, top: number, fmt: (v: number) => string): YScale {
-  const lo = Math.floor(Math.log10(Math.max(1, min)));
-  const hi = Math.ceil(Math.log10(max));
-  const ticks: number[] = [];
-  for (let e = lo; e <= hi; e++) ticks.push(10 ** e);
-  return { y: (v) => top + h - ((Math.log10(Math.max(10 ** lo, v)) - lo) / (hi - lo || 1)) * h, ticks, fmt };
-}
-
-function path(values: (number | null)[], X: XScale, y: (v: number) => number): string {
-  let d = "";
-  let pen = false;
-  values.forEach((v, i) => {
-    if (v === null || Number.isNaN(v)) { pen = false; return; }
-    d += `${pen ? "L" : "M"}${X.x(i).toFixed(1)},${y(v).toFixed(1)}`;
-    pen = true;
+function spans(flags: boolean[]): [number, number][] {
+  const out: [number, number][] = [];
+  let a = -1;
+  flags.forEach((f, i) => {
+    if (f && a < 0) a = i;
+    if (!f && a >= 0) { out.push([a, i - 1]); a = -1; }
   });
+  if (a >= 0) out.push([a, flags.length - 1]);
+  return out;
+}
+
+/** Index runs of consecutive non-null values: a missing value (or a declined answer) breaks the line. */
+function runs(vals: (number | null)[]): number[][] {
+  const out: number[][] = [];
+  let cur: number[] = [];
+  vals.forEach((v, i) => {
+    if (v === null || Number.isNaN(v)) { if (cur.length) out.push(cur); cur = []; } else cur.push(i);
+  });
+  if (cur.length) out.push(cur);
+  return out;
+}
+
+function linePath(vals: (number | null)[], X: XScale, y: (v: number) => number): string {
+  return runs(vals).map((r) => r.length === 1
+    ? `M${(X.x(r[0]) - 1).toFixed(1)},${y(vals[r[0]]!).toFixed(1)}h2` // a lone value still shows, as a dot
+    : r.map((i, k) => `${k ? "L" : "M"}${X.x(i).toFixed(1)},${y(vals[i]!).toFixed(1)}`).join("")).join("");
+}
+
+function bandPath(lo: (number | null)[], hi: (number | null)[], X: XScale, y: (v: number) => number): string {
+  let d = "";
+  let run: number[] = [];
+  const flush = () => {
+    if (run.length > 1) {
+      d += run.map((i, k) => `${k ? "L" : "M"}${X.x(i).toFixed(1)},${y(hi[i]!).toFixed(1)}`).join("");
+      d += [...run].reverse().map((i) => `L${X.x(i).toFixed(1)},${y(lo[i]!).toFixed(1)}`).join("") + "Z";
+    }
+    run = [];
+  };
+  lo.forEach((v, i) => (v === null || hi[i] === null ? flush() : run.push(i)));
+  flush();
   return d;
 }
 
-export function XAxis({ t, X, top }: { t: string[]; X: XScale; top: number }) {
-  const ticks = t.map((s, i) => [s, i] as const).filter(([s]) => {
-    const h = Number(new Date(s).toLocaleString("en-US", { timeZone: TZ, hour: "numeric", hour12: false }));
-    const m = new Date(s).getUTCMinutes();
-    return m === 0 && h % (X.width < 560 ? 6 : 3) === 0;
-  });
-  return (
-    <g className="axis">
-      {ticks.map(([s, i]) => (
-        <text key={s} x={X.x(i)} y={top + 14} textAnchor="middle">{clock(s, false).replace(" ", " ").toLowerCase()}</text>
-      ))}
-    </g>
-  );
+export interface PanelProps {
+  X: XScale;
+  title: ReactNode;
+  value?: ReactNode;
+  values: (number | null)[];
+  yFmt: (v: number) => string;
+  height?: number;
+  color?: string;
+  band?: [(number | null)[], (number | null)[]];
+  domain?: [number, number];
+  ticks?: number[];
+  refLine?: { value: number; label: string; tone: "sem" | "thr"; align?: "start" | "end" };
+  shade?: boolean[];
+  tone?: "sem" | "thr";
+  markers?: number[];
+  markerLabel?: (i: number) => string;
+  dividers?: number[];
+  axis?: Tick[];
+  idx: number | null;
+  pinned?: number | null;
+  onHover: (i: number | null) => void;
+  onPick: (i: number) => void;
+  label: string;
 }
 
-/** Pointer layer: hovering or dragging anywhere on a panel moves the shared index. */
-export function HitLayer({ X, height, onIdx }: { X: XScale; height: number; onIdx: (i: number) => void }) {
+export function Panel(p: PanelProps) {
+  const { X, values, yFmt, idx, tone = "sem" } = p;
+  const top = p.markers ? MARK : 4;
+  const plotH = p.height ?? 90;
+  const bottom = top + plotH;
+  const svgH = bottom + (p.axis ? 22 : 4);
+
+  // The data's own range (plus a little air), with round ticks placed inside it.
+  let lo: number, hi: number;
+  if (p.domain) [lo, hi] = p.domain;
+  else {
+    const vals = [...values, ...(p.band ? [...p.band[0], ...p.band[1]] : [])].filter((v): v is number => v !== null);
+    if (p.refLine) vals.push(p.refLine.value);
+    lo = vals.length ? Math.min(...vals) : 0;
+    hi = vals.length ? Math.max(...vals) : 1;
+    const pad = (hi - lo) * 0.08 || 1;
+    lo -= pad;
+    hi += pad;
+  }
+  const ticks = p.ticks ?? niceTicks(lo, hi);
+  const y = (v: number) => bottom - ((v - lo) / (hi - lo || 1)) * plotH;
+
+  const line = linePath(values, X, y);
+  const half = X.step / 2;
+  const at = idx !== null ? values[idx] : null;
+
   const move = (e: React.PointerEvent<SVGRectElement>) => {
     const r = (e.currentTarget.ownerSVGElement as SVGSVGElement).getBoundingClientRect();
-    onIdx(X.invert(e.clientX - r.left));
+    p.onHover(X.invert(e.clientX - r.left));
   };
-  return (
-    <rect x={MARGIN.left} y={0} width={X.width - MARGIN.left - MARGIN.right} height={height} fill="transparent"
-      style={{ touchAction: "pan-y", cursor: "crosshair" }} onPointerMove={move} onPointerDown={move} />
-  );
-}
 
-export function Crosshair({ X, idx, top, bottom }: { X: XScale; idx: number; top: number; bottom: number }) {
-  const x = X.x(idx);
-  return <line className="crosshair" x1={x} x2={x} y1={top} y2={bottom} />;
-}
-
-export function Legend({ series, idx, hidden, onToggle }: {
-  series: Series[]; idx: number; hidden?: Set<string>; onToggle?: (k: string) => void;
-}) {
-  return (
-    <div className="legend" role="group">
-      {series.map((s) => {
-        const v = s.values[idx];
-        const off = hidden?.has(s.key);
-        return (
-          <button key={s.key} type="button" className={`key${off ? " off" : ""}`} aria-pressed={!off}
-            onClick={onToggle ? () => onToggle(s.key) : undefined} disabled={!onToggle}
-            title={s.note ? `${s.label} (${s.note})` : s.label}>
-            <span className="swatch" style={{ background: s.color }} />
-            <span className="key-label">{s.label}{s.note ? "*" : ""}</span>
-            <span className="key-value">{v === null || v === undefined ? "n/a" : s.format(v)}</span>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-export function LinePanel({ title, t, X, series, idx, onIdx, height = 150, log = false, yFmt, zero = true, hidden, onToggle, children }: {
-  title: string; t: string[]; X: XScale; series: Series[]; idx: number; onIdx: (i: number) => void;
-  height?: number; log?: boolean; yFmt: (v: number) => string; zero?: boolean;
-  hidden?: Set<string>; onToggle?: (k: string) => void;
-  children?: (y: (v: number) => number) => ReactNode;
-}) {
-  const top = 8;
-  const plotH = height - top - 22;
-  const shown = series.filter((s) => !hidden?.has(s.key));
-  const vals = shown.flatMap((s) => s.values.filter((v): v is number => v !== null));
-  const min = vals.length ? Math.min(...vals) : 0;
-  const max = vals.length ? Math.max(...vals) : 1;
-  const Y = log ? niceLog(min, max, plotH, top, yFmt) : niceLinear(min, max, plotH, top, yFmt, zero);
   return (
     <figure className="panel">
-      <figcaption>
-        <span className="panel-title">{title}</span>
-        <Legend series={series} idx={idx} hidden={hidden} onToggle={onToggle} />
+      <figcaption className="panel-head">
+        <span className="panel-title">{p.title}</span>
+        {p.value !== undefined && <span className="panel-value">{p.value}</span>}
       </figcaption>
-      <svg width={X.width} height={height} role="img" aria-label={title}>
-        <g className="grid">
-          {Y.ticks.map((v) => (
+      <svg className="plot" width={X.width} height={svgH} role="img" aria-label={p.label}>
+        <g className="tick">
+          {ticks.map((v) => (
             <g key={v}>
-              <line x1={MARGIN.left} x2={X.width - MARGIN.right} y1={Y.y(v)} y2={Y.y(v)} />
-              <text x={MARGIN.left - 6} y={Y.y(v) + 3.5} textAnchor="end">{Y.fmt(v)}</text>
+              <line x1={M.left} x2={X.width - M.right} y1={y(v)} y2={y(v)} />
+              <text x={M.left - 6} y={y(v) + 3.5} textAnchor="end">{yFmt(v)}</text>
             </g>
           ))}
         </g>
-        {children?.(Y.y)}
-        {shown.map((s) => (
-          <path key={s.key} d={path(s.values, X, Y.y)} className="series" style={{ stroke: s.color }} />
+        {p.dividers?.map((i) => <line key={i} className="divider" x1={X.x(i) - half} x2={X.x(i) - half} y1={top} y2={bottom} />)}
+        {p.shade && spans(p.shade).map(([a, b]) => (
+          <rect key={a} className={`shade ${tone}`} x={Math.max(M.left, X.x(a) - half)} y={top}
+            width={Math.min(X.width - M.right, X.x(b) + half) - Math.max(M.left, X.x(a) - half)} height={plotH} />
         ))}
-        <Crosshair X={X} idx={idx} top={top} bottom={top + plotH} />
-        {shown.map((s) => {
-          const v = s.values[idx];
-          return v === null || v === undefined ? null : (
-            <circle key={s.key} cx={X.x(idx)} cy={Y.y(v)} r={4} className="dot" style={{ fill: s.color }} />
-          );
-        })}
-        <XAxis t={t} X={X} top={top + plotH} />
-        <HitLayer X={X} height={height} onIdx={onIdx} />
+        {p.band && <path className="band" d={bandPath(p.band[0], p.band[1], X, y)} />}
+        {p.refLine && (
+          <>
+            <line className={`ref ${p.refLine.tone}`} x1={M.left} x2={X.width - M.right} y1={y(p.refLine.value)} y2={y(p.refLine.value)} />
+            <text className="ref-label" y={y(p.refLine.value) - 5} {...(p.refLine.align === "start"
+              ? { x: M.left + 4, textAnchor: "start" } : { x: X.width - M.right - 2, textAnchor: "end" })}>{p.refLine.label}</text>
+          </>
+        )}
+        <path className="series" d={line} style={{ stroke: p.color ?? "var(--line)" }} />
+        {idx !== null && <line className="cross" x1={X.x(idx)} x2={X.x(idx)} y1={top} y2={bottom} />}
+        {idx !== null && at !== null && at !== undefined && (
+          <circle className="now" cx={X.x(idx)} cy={y(at)} r={4} style={{ fill: p.color ?? "var(--line)" }} />
+        )}
+        {p.axis && (
+          <g className="axis">
+            {p.axis.map((t) => (
+              <text key={t.i} x={X.x(t.i)} y={bottom + 15} textAnchor="middle" className={t.mark ? "day-mark" : undefined}>
+                {t.title && <title>{t.title}</title>}
+                {t.label}{t.mark ? " •" : ""}
+              </text>
+            ))}
+          </g>
+        )}
+        <rect x={M.left} y={0} width={X.width - M.left - M.right} height={bottom} fill="transparent" style={{ cursor: "crosshair" }}
+          onPointerMove={move} onPointerDown={move} onPointerLeave={() => p.onHover(null)}
+          onClick={(e) => { const r = (e.currentTarget.ownerSVGElement as SVGSVGElement).getBoundingClientRect(); p.onPick(X.invert(e.clientX - r.left)); }} />
+        {p.markers?.map((i) => (
+          <g key={i} className={`marker ${tone}${i === p.pinned ? " on" : ""}`} onClick={() => p.onPick(i)} onPointerEnter={() => p.onHover(i)}
+            role="button" aria-label={p.markerLabel ? p.markerLabel(i) : "Alert"}>
+            <circle className="hit" cx={X.x(i)} cy={MARK / 2} r={12} />
+            <circle className="m" cx={X.x(i)} cy={MARK / 2} r={4.5} />
+          </g>
+        ))}
       </svg>
     </figure>
   );

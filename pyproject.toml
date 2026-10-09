@@ -2,7 +2,7 @@
 name = "grid-semantic-alerts"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["gridstatusio>=0.16", "python-dotenv", "pydantic>=2", "openai>=3.26.0", "pandas", "pyarrow", "fastapi", "uvicorn"]
+dependencies = ["gridstatusio>=0.16", "python-dotenv", "pydantic>=2", "openai>=3.26.0", "pandas", "pyarrow"]
 
 [tool.setuptools]
 packages = ["pipeline"]

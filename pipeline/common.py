@@ -48,6 +48,27 @@ SCENARIOS = {
 }
 
 
+@dataclass(frozen=True)
+class DateRange:
+    """The week explorer's data: hourly series for every day from first_day to last_day (Central)."""
+
+    id: str
+    first_day: str
+    last_day: str
+    context_days: int  # pulled before first_day, so "the past 30 days" holds from the first day
+
+    def utc_window(self) -> tuple[pd.Timestamp, pd.Timestamp]:
+        start = pd.Timestamp(self.first_day, tz=CENTRAL) - pd.Timedelta(days=self.context_days)
+        end = pd.Timestamp(self.last_day, tz=CENTRAL) + pd.Timedelta(days=1)
+        return start.tz_convert("UTC"), end.tz_convert("UTC")
+
+
+# Dec 5, 2025 is when ERCOT's real-time co-optimization (RTC+B) went live: the first day with
+# real-time ancillary prices (ercot_mcpc_sced).
+RANGE = DateRange(id="range", first_day="2025-12-05", last_day="2026-10-08", context_days=30)
+EXPLORE = ROOT / "web" / "public" / "explore"
+
+
 def write_json(path: Path, obj) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(obj, indent=1, sort_keys=False, default=str, allow_nan=False) + "\n")
