@@ -142,6 +142,10 @@ The site is static, two HTML pages (`/` and `/try/`). On Vercel, import this rep
 Directory `web`**, framework preset **Vite**, output **`dist`**. No environment variables are
 needed: the July 22 page makes no API calls, and the Try it page uses each visitor's own key.
 
+With the Root Directory left at `./`, Vercel sees `pyproject.toml` too and offers a multi-service
+`vercel.json` with a Python service. Don't use it: the pipeline runs locally and is never
+deployed, and that config would route every request to it. Set the Root Directory to `web` instead.
+
 ## Limitations
 
 - One day is a demonstration, not an evaluation. Cutoffs are what the compile chose; none was
