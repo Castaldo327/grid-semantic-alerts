@@ -62,6 +62,15 @@ afternoon. The grid only tightened after sunset.
 | Threshold: `ERCOT load > 90,000 MW` | 8 times, 2:55–6:25 PM (the record afternoon) |
 | Sentence: "...heading toward scarcity, not just setting demand records" | 4 times, 8:10–10:25 PM (as reserves fell to 6.6 GW) |
 
+## The page
+
+- **Take the tour**: five moments of the day with captions; the numbers in each caption are read
+  from the data. Use ← → or Next/Back, and Esc to leave.
+- **Play** steps through the day and pauses on every alert; drag across any chart to scrub.
+- **Adjust settings** re-decides every alert in the browser with a different sentence-alert cutoff
+  or threshold, using the same model answers.
+- Links can point at a moment: `#t=20:10`.
+
 ## Regenerate
 
 You need your own keys in `.env` (gitignored):

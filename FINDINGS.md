@@ -40,9 +40,10 @@ Both alerts use a 30-minute re-fire cooldown, like Grid Status's Notification Ti
 
 ## Where it did worse
 
-- **It's borderline.** The 4 firings sit at P = 0.70 to 0.73 against a 0.7 cutoff. From 8:15 to
-  9:15 PM, while reserves were already dropping, P hovered at 0.6x and the alert stayed silent.
-  Moving the cutoff by 0.05 changes the story.
+- **It's borderline and jumpy.** The 4 firings sit at P = 0.70 to 0.73 against a 0.7 cutoff.
+  Between 8:20 and 9:10 PM, with reserves holding near 9 GW, P fell back to 0.21 to 0.58 before
+  climbing again. With the same answers, a 0.6 cutoff fires 5 times (adding a 7:00 AM alarm), 0.75
+  fires twice, and 0.8 fires once (10:00 PM).
 - **The compile is not stable.** gpt-6-luna doesn't accept `temperature` or `seed`, and two
   compiles of the same sentence gave different rules:
   - `heading_toward_scarcity >= 0.6 && current_condition.'heading toward scarcity' >= 0.6` fired

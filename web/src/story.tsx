@@ -116,7 +116,13 @@ export function ProbChart({ X, t, idx, onIdx, onPick, values, cutoff, ruleTrue, 
       {spans(ruleTrue).map(([a, b]) => (
         <rect key={a} className="zone sem" x={X.x(a)} y={TOP} width={X.x(b) - X.x(a) + w} height={plotH} />
       ))}
-      <path d={area} className="area sem" />
+      <defs>
+        <linearGradient id="prob-fill" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" style={{ stopColor: "var(--sem)", stopOpacity: 0.32 }} />
+          <stop offset="100%" style={{ stopColor: "var(--sem)", stopOpacity: 0.02 }} />
+        </linearGradient>
+      </defs>
+      <path d={area} fill="url(#prob-fill)" />
       <path d={line} className="line sem" />
       {cutoff !== null && <>
         <line className="limit sem" x1={MARGIN.left} x2={X.width - MARGIN.right} y1={y(cutoff)} y2={y(cutoff)} />

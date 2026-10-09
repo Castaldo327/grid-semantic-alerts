@@ -8,7 +8,7 @@ const TZ = "America/Chicago";
 
 export function useWidth<T extends HTMLElement>(): [React.RefObject<T>, number] {
   const ref = useRef<T>(null);
-  const [w, setW] = useState(800);
+  const [w, setW] = useState(320);
   useEffect(() => {
     if (!ref.current) return;
     const ro = new ResizeObserver(([e]) => setW(Math.max(280, Math.floor(e.contentRect.width))));

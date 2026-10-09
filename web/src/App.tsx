@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { LinePanel, clock, makeX, useWidth, type Series } from "./chart";
 import { WhatIf } from "./lanes";
 import { LiveBox } from "./live";
-import { cooldown, cutoffs, evaluate, parse, thresholdHit } from "./rule";
+import { Ribbon, TourBar, hhmm, type TourStep } from "./features";
+import { cooldown, cutoffs, evaluate, parse, thresholdHit, withCutoff } from "./rule";
 import { ProbChart, ThresholdChart } from "./story";
 import type { Demo, IndexEntry, Question } from "./types";
 
@@ -91,27 +92,89 @@ function Story({ d, whatif }: { d: Demo; whatif?: Sim }) {
   const [ref2, width2] = useWidth<HTMLDivElement>();
   const X2 = useMemo(() => makeX(d.t, width2), [d.t, width2]);
   const tree = useMemo(() => parse(d.alert.rule, d.alert.questions), [d]);
-  // The fire/no-fire decision is recomputed here, in TypeScript, from the model's answers.
-  const ruleTrue = useMemo(() => d.decisions.map((a) => evaluate(tree, a, d.alert.questions)), [d, tree]);
-  const thrTrue = useMemo(() => d.series[d.alert.baseline_threshold.series].map((v) => thresholdHit(d.alert.baseline_threshold, v)), [d]);
-  const semFired = useMemo(() => cooldown(ruleTrue, d.t, d.cooldown_minutes), [ruleTrue, d]);
-  const thrFired = useMemo(() => cooldown(thrTrue, d.t, d.cooldown_minutes), [thrTrue, d]);
-  const parity = JSON.stringify([semFired, thrFired, ruleTrue]) === JSON.stringify([d.fired.semantic, d.fired.threshold, d.rule_true]);
   const primary = d.alert.questions.find((q) => q.id === d.alert.primary)!;
-  const prob = d.decisions.map((a) => a[primary.id].probs.yes ?? 0);
-  const cut = cutoffs(tree, primary.id)[0] ?? null;
+  const origCut = cutoffs(tree, primary.id)[0] ?? null;
+  const origThr = d.alert.baseline_threshold.value;
   const c = d.alert.contrast;
   const wantCut = c ? cutoffs(tree, c.question, c.want)[0] : undefined;
-  const stops = useMemo(() => new Set([...semFired, ...thrFired]), [semFired, thrFired]);
 
-  const [idx, setIdxState] = useState(() => thrFired[0] ?? 0);
+  // Settings sliders: the same model answers, re-decided with a different cutoff or threshold.
+  const [cut, setCut] = useState<number | null>(origCut);
+  const [thrValue, setThrValue] = useState(origThr);
+  const [showSettings, setShowSettings] = useState(false);
+  const tuned = cut !== origCut || thrValue !== origThr;
+  const resetSettings = () => { setCut(origCut); setThrValue(origThr); };
+  const liveTree = useMemo(() => (cut === null ? tree : withCutoff(tree, primary.id, cut)), [tree, primary.id, cut]);
+
+  // The fire/no-fire decision is recomputed here, in TypeScript, from the model's answers.
+  const ruleTrue = useMemo(() => d.decisions.map((a) => evaluate(liveTree, a, d.alert.questions)), [d, liveTree]);
+  const thr = useMemo(() => ({ ...d.alert.baseline_threshold, value: thrValue }), [d, thrValue]);
+  const thrTrue = useMemo(() => d.series[thr.series].map((v) => thresholdHit(thr, v)), [d, thr]);
+  const semFired = useMemo(() => cooldown(ruleTrue, d.t, d.cooldown_minutes), [ruleTrue, d]);
+  const thrFired = useMemo(() => cooldown(thrTrue, d.t, d.cooldown_minutes), [thrTrue, d]);
+  const parity = useMemo(() => {
+    const rt = d.decisions.map((a) => evaluate(tree, a, d.alert.questions));
+    const tt = d.series[d.alert.baseline_threshold.series].map((v) => thresholdHit(d.alert.baseline_threshold, v));
+    return JSON.stringify([cooldown(rt, d.t, d.cooldown_minutes), cooldown(tt, d.t, d.cooldown_minutes), rt])
+      === JSON.stringify([d.fired.semantic, d.fired.threshold, d.rule_true]);
+  }, [d, tree]);
+  const prob = d.decisions.map((a) => a[primary.id].probs.yes ?? 0);
+  const stops = useMemo(() => new Set([...semFired, ...thrFired]), [semFired, thrFired]);
+  const s = d.series;
+
+  // Start at a #t=HH:MM link if there is one, else at the first threshold alert.
+  const [idx, setIdxState] = useState(() => {
+    const m = location.hash.match(/t=(\d{1,2}):?(\d{2})/);
+    const k = m ? d.t.findIndex((t) => hhmm(t) === `${m[1].padStart(2, "0")}:${m[2]}`) : -1;
+    return k >= 0 ? k : thrFired[0] ?? 0;
+  });
   const setIdx = (i: number) => setIdxState(Math.max(0, Math.min(d.t.length - 1, i)));
   const player = usePlayer(d.t.length, stops, idx, setIdx);
-  const go = (i: number) => { player.stop(); setIdx(i); };
+  useEffect(() => {
+    const id = setTimeout(() => history.replaceState(null, "", `#t=${hhmm(d.t[idx])}`), 250);
+    return () => clearTimeout(id);
+  }, [idx, d.t]);
+
+  // Guided tour: five moments, captions filled from the data at each one.
+  const at = (label: string) => Math.max(0, d.t.findIndex((t) => clock(t) === label));
+  const P = (i: number) => `${Math.round(prob[i] * 100)}%`;
+  const v = (k: string, i: number, f: (x: number) => string) => (s[k][i] === null ? "n/a" : f(s[k][i]!));
+  const usdMWh = (x: number) => `${usd(x)}/MWh`;
+  const steps: TourStep[] = useMemo(() => {
+    const a = at("2:55 PM"), b = at("4:55 PM"), f = d.fired.semantic[0] ?? at("8:10 PM"), m = at("8:45 PM"), z = at("10:05 PM");
+    const nextAfter = d.fired.semantic.find((i) => i > m);
+    const lastBefore = [...d.fired.semantic].reverse().find((i) => i <= z);
+    return [
+      { idx: a, title: `${clock(d.t[a])}: demand crosses 90 GW`,
+        body: `The threshold alert fires. The model puts the chance that ERCOT is heading toward scarcity at ${P(a)}: reserves are ${v("prc_mw", a, gw)} and the hub price is ${v("hub_rt_price", a, usdMWh)}.` },
+      { idx: b, title: `${clock(d.t[b])}: an all-time record`,
+        body: `Demand peaks at ${v("load_mw", b, gw)}. The threshold alert has fired ${d.fired.threshold.filter((i) => i <= b).length} times and keeps going every 30 minutes. The sentence alert stays quiet at ${P(b)}, because reserves are still ${v("prc_mw", b, gw)}.` },
+      { idx: f, title: `${clock(d.t[f])}: the sentence alert fires`,
+        body: `Solar is down to ${v("solar_mw", f, gw)}, batteries are covering ${v("battery_discharge_mw", f, gw)}, and reserves have fallen to ${v("prc_mw", f, gw)}. The model's answer reaches ${P(f)}. The threshold alert is silent: demand has dropped to ${v("load_mw", f, gw)}.` },
+      { idx: m, title: `${clock(d.t[m])}: a weak spot`,
+        body: `Reserves are still near ${v("prc_mw", m, gw)}, but the model's answer has fallen back to ${P(m)}.${nextAfter !== undefined ? ` The alert doesn't fire again until ${clock(d.t[nextAfter])}.` : ""} The answer is jumpy from one snapshot to the next.` },
+      { idx: z, title: `${clock(d.t[z])}: the tightest moment`,
+        body: `The hub price hits ${v("hub_rt_price", z, usdMWh)}, non-spinning reserve ${v("nspin_price", z, usdMWh)}, and reserves are down to ${v("prc_mw", z, gw)}. The model says ${P(z)}.${lastBefore !== undefined && lastBefore !== z ? ` No new alert: the last one was at ${clock(d.t[lastBefore])}, inside the 30-minute cooldown.` : ""}` },
+    ];
+  }, [d]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [tour, setTour] = useState<number | null>(null);
+  const tourGo = (k: number) => {
+    const n = Math.max(0, Math.min(steps.length - 1, k));
+    player.stop(); resetSettings(); setShowSettings(false); setTour(n); setIdx(steps[n].idx);
+  };
+  const go = (i: number) => { player.stop(); setTour(null); setIdx(i); };
+  const hover = (i: number) => { if (tour === null) go(i); };
+  const pick = (i: number) => { go(i); document.getElementById("explore")?.scrollIntoView({ behavior: "smooth", block: "start" }); };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement).closest("input:not([type=range]), textarea, summary, button")) return;
+      if (tour !== null) {
+        if (e.key === "ArrowRight") { e.preventDefault(); tourGo(tour + 1); }
+        else if (e.key === "ArrowLeft") { e.preventDefault(); tourGo(tour - 1); }
+        else if (e.key === "Escape") setTour(null);
+        return;
+      }
       if (e.key === "ArrowRight") { e.preventDefault(); go(idx + (e.shiftKey ? 12 : 1)); }
       else if (e.key === "ArrowLeft") { e.preventDefault(); go(idx - (e.shiftKey ? 12 : 1)); }
       else if (e.key === " ") { e.preventDefault(); player.toggle(); }
@@ -120,10 +183,9 @@ function Story({ d, whatif }: { d: Demo; whatif?: Sim }) {
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  const ex = d.explanations[d.t[idx]];
+  const ex = tuned ? undefined : d.explanations[d.t[idx]];
   const thrSent = thrFired.includes(idx);
   const semSent = semFired.includes(idx);
-  const s = d.series;
   const stats = d.decision_stats;
 
   return (
@@ -154,31 +216,62 @@ function Story({ d, whatif }: { d: Demo; whatif?: Sim }) {
           <div className="alert-card thr">
             <div className="card-kind"><span className="dot thr" /> Threshold alert <span className="muted">· how alerts work today</span></div>
             <div className="card-def"><code>{d.alert.baseline_label}</code></div>
-            <div className="card-result"><b>{thrFired.length}</b> alerts, {range(thrFired, d.t)}</div>
-            <p>Every one came during the record afternoon, while reserves were 16.5–17.7 GW and the hub price was under $82/MWh.</p>
+            <div className="card-result"><b>{thrFired.length}</b> alerts{thrFired.length ? `, ${range(thrFired, d.t)}` : ""}</div>
+            <Ribbon t={d.t} fired={thrFired} cls="thr" onPick={pick} />
+            {tuned
+              ? <p className="tuned-note">With your settings ({Math.round(thrValue / 1000)} GW). Originally 8 alerts at 90 GW.</p>
+              : <p>Every one came during the record afternoon, while reserves were 16.5–17.7 GW and the hub price was under $82/MWh.</p>}
           </div>
           <div className="alert-card sem">
             <div className="card-kind"><span className="dot sem" /> Sentence alert <span className="muted">· this demo</span></div>
             <div className="card-def">“{d.alert.sentence}”</div>
-            <div className="card-result"><b>{semFired.length}</b> alerts, {range(semFired, d.t)}</div>
-            <p>None during the record. It fired after sunset, as reserves fell from 9.2 to 6.6 GW and reserve prices rose.</p>
+            <div className="card-result"><b>{semFired.length}</b> alerts{semFired.length ? `, ${range(semFired, d.t)}` : ""}</div>
+            <Ribbon t={d.t} fired={semFired} cls="sem" onPick={pick} />
+            {tuned
+              ? <p className="tuned-note">With your settings (cutoff {pct(cut ?? 0)}). Originally 4 alerts at 70%.</p>
+              : <p>None during the record. It fired after sunset, as reserves fell from 9.2 to 6.6 GW and reserve prices rose.</p>}
           </div>
         </div>
       </section>
 
-      <section className="explore">
+      <section className="explore" id="explore">
         <h2>Step through the day</h2>
         <p className="lede">
-          Press play, or drag across a chart. <span className="key-dot thr" /> Orange dots are threshold alerts and{" "}
-          <span className="key-dot sem" /> blue dots are sentence alerts. The details panel shows what the model answered at that moment.
+          Take the tour for the five moments that matter, or press play and drag across the charts yourself.{" "}
+          <span className="nowrap"><span className="key-dot thr" /> Orange dots</span> are threshold alerts and{" "}
+          <span className="nowrap"><span className="key-dot sem" /> blue dots</span> are sentence alerts.
         </p>
         <div className="stage">
           <div className="stage-main" ref={ref}>
             <div className="controls">
-              <button type="button" className="play" onClick={player.toggle}>{player.playing ? "Pause" : "▶ Play"}</button>
+              <button type="button" className="tour-btn" onClick={() => (tour === null ? tourGo(0) : setTour(null))}>{tour === null ? "Take the tour" : "End tour"}</button>
+              <button type="button" className="play" onClick={() => { setTour(null); player.toggle(); }}>{player.playing ? "Pause" : "▶ Play"}</button>
               <input type="range" min={0} max={d.t.length - 1} value={idx} aria-label="Time of day" aria-valuetext={clock(d.t[idx])}
                 onChange={(e) => go(Number(e.target.value))} />
               <span className="clock">{clock(d.t[idx])}</span>
+            </div>
+            {tour !== null && <TourBar steps={steps} at={tour} onGo={tourGo} onClose={() => setTour(null)} />}
+            <div className="settings-bar">
+              <button type="button" className={`settings-toggle${showSettings ? " on" : ""}`} onClick={() => setShowSettings(!showSettings)} aria-expanded={showSettings}>
+                {showSettings ? "Hide settings" : "Adjust settings"}{tuned && !showSettings ? " (changed)" : ""}
+              </button>
+              {showSettings && (
+                <div className="settings">
+                  {origCut !== null && (
+                    <label>
+                      <span>Sentence alert cutoff <b>{pct(cut ?? 0)}</b></span>
+                      <input type="range" min={0.4} max={0.9} step={0.05} value={cut ?? 0} onChange={(e) => setCut(Number(e.target.value))} />
+                      <small>{semFired.length} alerts · the model chose {pct(origCut)}</small>
+                    </label>
+                  )}
+                  <label>
+                    <span>Threshold <b>{Math.round(thrValue / 1000)} GW</b></span>
+                    <input type="range" min={85000} max={92000} step={1000} value={thrValue} onChange={(e) => setThrValue(Number(e.target.value))} />
+                    <small>{thrFired.length} alerts · the preset is {Math.round(origThr / 1000)} GW</small>
+                  </label>
+                  <button type="button" className="reset" onClick={resetSettings} disabled={!tuned}>Reset</button>
+                </div>
+              )}
             </div>
             <div className="jump">
               <span className="muted">Jump to an alert:</span>
@@ -188,18 +281,18 @@ function Story({ d, whatif }: { d: Demo; whatif?: Sim }) {
 
             <div className="chart-block">
               <h3>Demand <span className="muted">· what the threshold alert watches</span></h3>
-              <ThresholdChart X={X} t={d.t} idx={idx} onIdx={go} onPick={go}
+              <ThresholdChart X={X} t={d.t} idx={idx} onIdx={hover} onPick={go}
                 series={[{ label: "Demand", values: s.load_mw, cls: "c1", fmt: gw }]}
-                threshold={d.alert.baseline_threshold.value} thresholdLabel="90 GW threshold"
+                threshold={thrValue} thresholdLabel={`${Math.round(thrValue / 1000)} GW threshold`}
                 fired={thrFired} active={thrTrue} yTick={(v) => `${Math.round(v / 1000)} GW`} height={210} />
             </div>
             <div className="chart-block">
               <h3>“{primary.text}” <span className="muted">· the model's answer</span></h3>
-              <ProbChart X={X} t={d.t} idx={idx} onIdx={go} onPick={go} values={prob} cutoff={cut} ruleTrue={ruleTrue} fired={semFired} />
+              <ProbChart X={X} t={d.t} idx={idx} onIdx={hover} onPick={go} values={prob} cutoff={cut} ruleTrue={ruleTrue} fired={semFired} />
             </div>
             <div className="chart-block">
               <h3>Operating reserves <span className="muted">· spare capacity ERCOT can call on; lower means tighter</span></h3>
-              <LinePanel title="" t={d.t} X={X} idx={idx} onIdx={go} height={120} yFmt={(v) => `${Math.round(v / 1000)} GW`}
+              <LinePanel title="" t={d.t} X={X} idx={idx} onIdx={hover} height={120} yFmt={(v) => `${Math.round(v / 1000)} GW`}
                 series={[{ key: "prc_mw", label: "Reserves", color: "var(--s3)", values: s.prc_mw, format: gw }]} />
             </div>
           </div>
@@ -211,8 +304,9 @@ function Story({ d, whatif }: { d: Demo; whatif?: Sim }) {
               <div><span>Reserves</span><b>{s.prc_mw[idx] !== null ? gw(s.prc_mw[idx]!) : "n/a"}</b></div>
               <div><span>Hub price</span><b>{s.hub_rt_price[idx] !== null ? `${usd(s.hub_rt_price[idx]!)}/MWh` : "n/a"}</b></div>
             </div>
-            <div className={`status thr${thrSent ? " sent" : ""}`}><span className="dot thr" /> Threshold alert <b>{thrSent ? "Sent" : "Not sent"}</b></div>
-            <div className={`status sem${semSent ? " sent" : ""}`}><span className="dot sem" /> Sentence alert <b>{semSent ? "Sent" : "Not sent"}</b></div>
+            <div key={thrSent ? `t${idx}` : "t"} className={`status thr${thrSent ? " sent" : ""}`}><span className="dot thr" /> Threshold alert <b>{thrSent ? "Sent" : "Not sent"}</b></div>
+            <div key={semSent ? `s${idx}` : "s"} className={`status sem${semSent ? " sent" : ""}`}><span className="dot sem" /> Sentence alert <b>{semSent ? "Sent" : "Not sent"}</b></div>
+            {tuned && (thrSent || semSent) && <p className="muted small">Explanations were written for the original settings, so none is shown here.</p>}
             {ex && (
               <div className={`why ${ex.kind}`}>
                 <div className="why-head">{ex.kind === "fired" ? "Why the sentence alert fired" : "Why the sentence alert didn't fire"}</div>
@@ -268,7 +362,7 @@ function Story({ d, whatif }: { d: Demo; whatif?: Sim }) {
       <section className="limits">
         <h2>What didn't work as well</h2>
         <ul>
-          <li><b>It's close to the line.</b> The four alerts came at 70–73% against a 70% cutoff. Between 8:15 and 9:15 PM, while reserves were already falling, the answer sat just under 70% and nothing fired.</li>
+          <li><b>It's close to the line, and jumpy.</b> The four alerts came at 70–73% against a 70% cutoff. Between 8:20 and 9:10 PM, with reserves holding near 9 GW, the answer fell back to 21–58% before rising again. Try the cutoff slider above to see how much the result depends on it.</li>
           <li><b>The same sentence can produce a different alert.</b> A second run turned the sentence into a 60% cutoff, which fired 7 times, including once at 7:00 AM, when prices and reserve prices were low. A real product would save the compiled questions and show them to the user.</li>
           <li><b>The second question didn't help.</b> It was meant to separate “scarcity approaching” from “demand record only”, but it picked “scarcity approaching” during the record afternoon too. The first question did the real work.</li>
           <li><b>One day isn't an evaluation.</b> This shows the idea on a day where a threshold is known to mislead. It doesn't measure accuracy.</li>

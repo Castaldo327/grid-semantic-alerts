@@ -138,3 +138,10 @@ export function cutoffs(n: Node, qid: string, option: string | null = null): num
   if (n.k === "not") return cutoffs(n.a, qid, option);
   return [...cutoffs(n.a, qid, option), ...cutoffs(n.b, qid, option)];
 }
+
+/** The same rule with every numeric cutoff on `qid`'s main value replaced (for the settings sliders). */
+export function withCutoff(n: Node, qid: string, value: number): Node {
+  if (n.k === "cmp") return n.qid === qid && n.option === null && typeof n.value === "number" ? { ...n, value } : n;
+  if (n.k === "not") return { k: "not", a: withCutoff(n.a, qid, value) };
+  return { k: n.k, a: withCutoff(n.a, qid, value), b: withCutoff(n.b, qid, value) };
+}
