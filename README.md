@@ -8,10 +8,16 @@ rather than text, and ordinary code decides whether to fire.
 
 Two pages, both on real Grid Status API data:
 
-- **July 22** (`/`): the story. One day, 5-minute snapshots, a threshold alert against a sentence
-  alert, replayed from a saved run.
-- **Try it** (`/try/`): write your own alert, pick any week from Dec 5, 2025 to Oct 8, 2026, and run
-  it with your own OpenAI key, straight from the browser.
+- **Overview** (`/`): the pitch. The July 22 story told in the alert form's own terms: today's
+  threshold row (Select Series / Is / Value, Notification Timeout) next to a new "Describe it"
+  option, and the notifications each would have sent, replayed from a saved run.
+- **Create alert** (`/try/`): the alert form with "Describe it" added and a new Preview section.
+  Pick any week from Dec 5, 2025 to Oct 8, 2026 and see when the description, or a threshold,
+  would have notified you. Describing runs with your own OpenAI key, straight from the browser.
+
+The UI follows Grid Status's alert form (gray canvas, white cards, the same section titles and
+helper text, series named as its picker names them) because this is pitched as an enhancement to
+that form, not a separate product.
 
 It is an independent concept demo, not affiliated with Grid Status.
 
@@ -52,8 +58,8 @@ pipeline/   (Python, runs locally, never deployed)
   08_range_state.py  hourly series + unusual days + suggested weeks → web/public/explore/ercot_hourly.json
   luna.py            the pipeline's model client (Decisions + Responses API), with a request cache
 web/        (Vite + React + TypeScript, static, deployed)
-  src/App.tsx              the July 22 page
-  src/explore/             the Try it page; snapshot.ts, compile.ts, openai.ts and run.ts have no
+  src/App.tsx              the Overview page (the July 22 replay)
+  src/explore/             the Create alert page; snapshot.ts, compile.ts, openai.ts and run.ts have no
                            UI code, so Node runs the same code for the saved runs
   scripts/save_runs.ts     suggested weeks' example alerts → web/public/explore/runs/<week>.json
 ```
@@ -73,41 +79,68 @@ afternoon. The grid only tightened after sunset.
 | Threshold: `ERCOT load > 90,000 MW` | 8 times, 2:55–6:25 PM (the record afternoon) |
 | Sentence: "...heading toward scarcity, not just setting demand records" | 4 times, 8:10–10:25 PM (as reserves fell to 6.6 GW) |
 
-## The July 22 page
+## The Overview page
 
-- The two alerts side by side, then five moments of the day on three stacked charts (demand with
-  the threshold, the model's answer with its cutoff, reserves). Captions are read from the data.
-- Hover to look at any 5-minute snapshot, click to pin it, ← → to step (Shift for an hour). Under
-  the charts: the model's answers, which conditions of the rule they meet, its note at an alert,
-  and the exact text it read.
-- Links can point at a moment: `#t=20:10`.
+- "What would you like to monitor?" shows both alerts as form sections: the threshold
+  (`ERCOT Load: load`, greater than 90000, 30-minute Notification Timeout) and the description,
+  with the questions and rule it compiled to. Each lists its notification times; clicking one
+  jumps the replay there.
+- The replay: five moments of the day on three stacked charts (load with the threshold, the
+  model's answer with its cutoff, reserves). Under the charts, the notifications sent at that
+  time as emails (a sentence alert's email carries gpt-6-luna's one-line reason), the model's
+  answers and which conditions they meet, and the exact text it read.
+- Hover to look at any 5-minute row, click to pin it, ← → to step (Shift for an hour). Links can
+  point at a moment: `#t=20:10`.
 
-## The Try it page
+## The Create alert page
+
+The alert form's sections in order (Name your alert, What would you like to monitor?, How should
+you be notified?, Notification Timeout, Alert Status, Create), plus:
+
+- **"Describe it"** next to "Threshold" under "What would you like to monitor?". Threshold mode
+  is the familiar row: a series picker named the way Grid Status names series, an operator and a
+  value. Each hour is checked against its highest value for "greater than" (the 5-minute peak,
+  the highest SCED price) and its lowest for "less than", so it notifies when any row in the hour
+  would.
+- **Preview**, the new section: a calendar and the week's charts, with both alerts tallied side
+  by side. The Notification Timeout applies to both. Notifications appear as emails under the
+  charts. Email, Alert Status and Create are there for the form's shape; nothing is saved or sent.
+- **Start from an example** loads one of five suggested weeks with its alert name, its
+  description and the threshold someone would set today.
 
 Most weeks are uneventful, and an alert run on an ordinary week has nothing to find. So the page
 starts from what happened:
 
 - **A calendar of the whole range**, each day shaded by how many unusual signals it had: reserves
   below 5.5 GW, hub price at or above $300/MWh, non-spin at or above $100/MWh, hub price below
-  -$10/MWh, demand at or above 90 GW, wind under 6 GW for the day. 71 of 308 days qualify.
-  Hovering a day says what happened; clicking starts the week there.
-- **Five suggested weeks**, one per kind of event, each with an example alert and a saved run, so
-  the page shows a result before anyone enters a key:
+  -$10/MWh, demand at or above 90 GW, wind under 6 GW for the day, and a demand-weighted
+  temperature at or above 100°F or at or below 32°F. 74 of 308 days qualify. Hovering a day says
+  what happened; clicking starts the week there.
+- **Five suggested weeks**, one per kind of event, each with an example description, a threshold
+  for comparison, and a saved run, so the page shows a result before anyone enters a key:
 
-  | week | event | example alert | rule met |
-  |---|---|---|---|
-  | Jul 19–25 | record demand | "...heading toward scarcity, not just setting demand records." | 14 evening hours; never in the record afternoon |
-  | Aug 20–26 | heat wave | "...running short of reserves, not just when it's hot." | 10 hours on the 22nd, 23rd, 24th and 26th |
-  | Jan 22–28 | winter price spikes | "...a price spike comes with reserves running low." | 2 hours, Jan 28 6–8 AM; not the Jan 25 spikes with 13 GW spare |
-  | Feb 18–24 | negative prices | "...so much wind and solar that prices go negative." | 11 hours, 9 of them on the 24th |
-  | Oct 2–8 | low wind | "...weak wind is leaving the grid tight in the evening." | 16 evening hours, Oct 5–8 |
+  | week | example description | notified (no timeout) | threshold today | notified |
+  |---|---|---|---|---|
+  | Aug 20–26, heat wave | "...running short of reserves, not just when it's hot." | 5, all on the 3 days reserves fell to about 5.5 GW | `ERCOT Load: load` > 90000 | 19, on 6 days |
+  | Jan 22–28, winter freeze | "...the freeze is actually leaving ERCOT short of reserves, not just driving up prices." | 2, Jan 28 6–7 AM; not the $938 freeze hours with 13 GW spare | hub LMP > 300 | 22, on 5 days |
+  | Jul 19–25, record demand | "...heading toward scarcity, not just setting demand records." | 11, evenings Jul 19–22; never in the record afternoon | `ERCOT Load: load` > 90000 | 5, all in the record afternoon |
+  | Feb 18–24, negative prices | "...so much wind and solar that prices go negative." | 25, exactly the hours with a negative average price | hub LMP < 0 | 32 |
+  | Oct 2–8, low wind | "...weak wind leaves ERCOT short of reserves in the evening." | 2, Oct 5 and Oct 8 | `ERCOT Fuel Mix: wind` < 3000 | 24 |
+
+  A threshold on the right series can come close: `ERCOT PRC: prc` < 6000 notifies in nearly the
+  same 5 heat-wave hours as the description. The description's advantage is not having to know
+  which series and number mean "short".
 
 - **A run** compiles the sentence with gpt-6-luna (the same prompts and validator as
-  `03_compile.py`, ported to TypeScript), writes one snapshot per hour from the numbers (only
-  that hour and earlier: "the highest in the past 30 days"), asks the Decisions API about each of
-  the 168 hours, 8 at a time, and checks the rule in plain code. About 16 seconds, 82,000 input
-  tokens, $0.008. A sentence compiles once per session, so trying it on other weeks reuses the
-  same compiled alert.
+  `03_compile.py`, ported to TypeScript), writes one snapshot per hour from the numbers (temperature,
+  demand, solar, wind, batteries, prices, reserves; only that hour and earlier, as in "the highest
+  in the past 30 days"), asks the Decisions API about each of the 168 hours, 8 at a time, and checks
+  the rule in plain code. About 16 seconds and 90,000 to 110,000 input tokens, about a cent. A
+  sentence compiles once per session, so trying it on other weeks reuses the same compiled alert.
+- **Temperature** is observed, not forecast: ERCOT's daily weather-zone file starts three days
+  back, and a past hour's value stops changing once the day is over, so the latest published
+  value is the observed one. The snapshot gives the ERCOT average weighted by each zone's share of
+  demand, plus Dallas-Fort Worth and Houston.
 - **The key** stays in the browser tab (session storage) and is sent only to api.openai.com, which
   allows browser requests. No server is involved. OpenAI's reply to an invalid key carries no CORS
   headers, so the page can't read it and says the key is the likely problem.
@@ -131,8 +164,9 @@ make check        # TS/Python rule parity, saved-run rule check, secret scan of 
 
 Grid Status pulls are cached in `data/raw/` and every gpt-6-luna request in `data/cache/luna/`
 (pipeline) or `data/cache/luna-web/` (saved runs), so a re-run replays identical output and spends
-nothing. The hourly range is 12 server-side resampled pulls, about 95,000 rows of the free tier's
-500,000 a month; the saved runs cost about $0.05 uncached. `data/` is not in the repo, so a fresh
+nothing. The hourly range is 14 pulls (resampled server-side where the source is finer than
+hourly), about 103,000 rows of the free tier's 500,000 a month; the saved runs cost about $0.05
+uncached. `data/` is not in the repo, so a fresh
 clone queries the models again. gpt-6-luna takes no temperature or seed, so expect a slightly
 different compile; see FINDINGS.md for how much that matters.
 
@@ -140,7 +174,7 @@ different compile; see FINDINGS.md for how much that matters.
 
 The site is static, two HTML pages (`/` and `/try/`). On Vercel, import this repo with **Root
 Directory `web`**, framework preset **Vite**, output **`dist`**. No environment variables are
-needed: the July 22 page makes no API calls, and the Try it page uses each visitor's own key.
+needed: the Overview page makes no API calls, and the Create alert page uses each visitor's own key.
 
 With the Root Directory left at `./`, Vercel sees `pyproject.toml` too and offers a multi-service
 `vercel.json` with a Python service. Don't use it: the pipeline runs locally and is never
@@ -156,7 +190,7 @@ deployed, and that config would route every request to it. Set the Root Director
   "scarcity approaching" during the record afternoon too. The alert's correctness rests on its
   main question.
 - The prose state is a design choice; one wording fix changed a simulated run from 2 firings to 5.
-- The Try it page's snapshots are hourly, so events shorter than an hour show only as the hour's
+- The Create alert page's snapshots are hourly, so events shorter than an hour show only as the hour's
   high or low. Most of April's negative prices were 5-minute dips inside hours that averaged
   above zero, which is why the suggested negative-price week is in February.
 - The unusual-day flags are fixed thresholds set from this range's own distribution. They point at

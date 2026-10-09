@@ -13,6 +13,14 @@ still shows up.
   ercot_spp_day_ahead_hourly      hub day-ahead price (already hourly)
   ercot_mcpc_sced                 non-spinning reserve (NSPIN) real-time price: mean, max
   ercot_prc                       physical responsive capability (operating reserves): mean, min
+  ercot_temperature_forecast_by_weather_zone
+                                  hourly temperature (F) by weather zone. ERCOT publishes a file
+                                  every day at 5 AM that starts three days back, and once a day is
+                                  over its hours stop changing from file to file (checked for Jul 22:
+                                  the files of Jul 23, 24 and 25 agree exactly), so the latest
+                                  published value for a past hour is the observed temperature.
+  ercot_load_by_weather_zone      monthly mean load by weather zone, to weight the zones'
+                                  temperatures by where demand is
 
 The load forecast is left out: pulling every hourly vintage for ten months (to avoid lookahead,
 see 01_fetch.py) would cost more than the rest combined.
@@ -22,7 +30,7 @@ from pipeline.common import RANGE, CachedGridStatus, log
 
 HUB = "HB_HUBAVG"
 
-# label: (dataset, resample function or None, extra query)
+# label: (dataset, resample function or None, extra query). Resampling is hourly unless the query says otherwise.
 PULLS = {
     "load_mean": ("ercot_load", "mean", {}),
     "load_max": ("ercot_load", "max", {}),
@@ -36,6 +44,8 @@ PULLS = {
     "nspin_max": ("ercot_mcpc_sced", "max", {"filter_column": "as_type", "filter_value": "NSPIN"}),
     "prc_mean": ("ercot_prc", "mean", {}),
     "prc_min": ("ercot_prc", "min", {}),
+    "temp": ("ercot_temperature_forecast_by_weather_zone", None, {"publish_time": "latest"}),
+    "zone_load_monthly": ("ercot_load_by_weather_zone", "mean", {"resample": "1 month"}),
 }
 
 
@@ -44,7 +54,7 @@ def main() -> None:
     start, end = RANGE.utc_window()
     for label, (dataset, fn, extra) in PULLS.items():
         resample = {"resample": "1 hour", "resample_function": fn} if fn else {}
-        df = gs.get(RANGE.id, label, dataset, start=start, end=end, **resample, **extra)
+        df = gs.get(RANGE.id, label, dataset, start=start, end=end, **{**resample, **extra})
         log.info("%s: %d rows", label, len(df))
     log.info("range fetch done: %d uncached API requests", gs.requests)
 

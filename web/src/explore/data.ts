@@ -4,11 +4,18 @@
 
 export type SeriesKey =
   | "load" | "load_max" | "solar" | "wind" | "net" | "bat_dis" | "bat_chg"
-  | "hub" | "hub_max" | "hub_min" | "da" | "nspin" | "nspin_max" | "prc" | "prc_min";
+  | "hub" | "hub_max" | "hub_min" | "da" | "nspin" | "nspin_max" | "prc" | "prc_min" | "temp" | "temp_dfw" | "temp_hou";
 
 export interface DayTag { kind: string; text: string }
 export interface Day { date: string; first_hour: number; hours: number; tags: DayTag[] }
-export interface SuggestedWeek { start: string; title: string; note: string; example: string }
+export interface SuggestedWeek {
+  start: string;
+  title: string;
+  name: string; // the example's alert name
+  note: string;
+  example: string; // the sentence alert
+  threshold: { series: string; op: ">" | ">=" | "<" | "<="; value: number }; // what someone would set today
+}
 
 export interface Hourly {
   range: { first_day: string; last_day: string; context_days: number; timezone: string };
@@ -17,6 +24,7 @@ export interface Hourly {
   series: Record<SeriesKey, (number | null)[]>;
   days: Day[];
   thresholds: Record<string, string>;
+  temp_weights: Record<string, number>;
   weeks: SuggestedWeek[];
   datasets: string[];
 }

@@ -1,6 +1,6 @@
 // Small SVG time-series panels stacked on one shared x axis. One index drives the crosshair in every
-// panel: hovering moves it, clicking pins it. The July 22 page uses 288 five-minute points, the
-// "Try it" page 168 hourly ones.
+// panel: hovering moves it, clicking pins it. The Overview page uses 288 five-minute points, the
+// Create alert page 168 hourly ones.
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 

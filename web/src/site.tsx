@@ -1,5 +1,5 @@
-// Pieces both pages share: the header (navigation, theme), the footer, number formats, and the
-// model's answers with the rule's conditions marked met or not.
+// Pieces both pages share: the app frame (navigation, theme, footer), form controls modeled on Grid
+// Status's alert form, number formats, and the model's answers with the rule's conditions marked.
 
 import { useEffect, useState, type ReactNode } from "react";
 import { describeLeaf, evaluate, leaves, type Node } from "./rule";
@@ -33,26 +33,133 @@ const THEME_ICON: Record<Theme, ReactNode> = {
   dark: <path d="M13.5 9.6A5.6 5.6 0 0 1 6.4 2.5a5.6 5.6 0 1 0 7.1 7.1Z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />,
 };
 
-export function Shell({ page, children, footer }: { page: "story" | "try"; children: ReactNode; footer?: ReactNode }) {
+export function Shell({ page, children, footer }: { page: "overview" | "create"; children: ReactNode; footer?: ReactNode }) {
   const [theme, nextTheme] = useTheme();
   const label = theme === "system" ? "Theme: automatic" : theme === "light" ? "Theme: light" : "Theme: dark";
   return (
-    <div className="page">
-      <header className="site">
-        <a className="brand" href={BASE}>Sentence alerts <span>for ERCOT</span></a>
-        <nav aria-label="Pages">
-          <a href={BASE} aria-current={page === "story" ? "page" : undefined}>July 22</a>
-          <a href={`${BASE}try/`} aria-current={page === "try" ? "page" : undefined}>Try it</a>
-        </nav>
-        <button type="button" className="theme-btn" onClick={nextTheme} aria-label={`${label}. Switch theme`} title={label}>
-          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">{THEME_ICON[theme]}</svg>
-        </button>
+    <>
+      <header className="topbar">
+        <div className="top-inner">
+          <a className="brand" href={BASE}>Sentence alerts</a>
+          <span className="pill">Concept · proposed enhancement</span>
+          <nav aria-label="Pages">
+            <a href={BASE} aria-current={page === "overview" ? "page" : undefined}>Overview</a>
+            <a href={`${BASE}try/`} aria-current={page === "create" ? "page" : undefined}>Create alert</a>
+          </nav>
+          <button type="button" className="theme-btn" onClick={nextTheme} aria-label={`${label}. Switch theme`} title={label}>
+            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">{THEME_ICON[theme]}</svg>
+          </button>
+        </div>
       </header>
-      <main>{children}</main>
+      <main className="wrap">{children}</main>
       <footer className="foot">
         {footer}
-        <p>An independent concept demo. Not affiliated with Grid Status.</p>
+        <p>An independent concept demo for a proposed alerts feature. Not affiliated with or endorsed by Grid Status.</p>
       </footer>
+    </>
+  );
+}
+
+/** A form section, as in the alert form: a title, a line of help, then the controls. */
+export function Section({ title, help, badge, id, children }: { title: ReactNode; help?: ReactNode; badge?: string; id?: string; children: ReactNode }) {
+  return (
+    <section className="section" id={id}>
+      <h2 className="section-title">{title}{badge && <span className="badge">{badge}</span>}</h2>
+      {help && <p className="section-help">{help}</p>}
+      {children}
+    </section>
+  );
+}
+
+export function Field({ label, children, className = "" }: { label: string; children: ReactNode; className?: string }) {
+  return (
+    <div className={`field ${className}`}>
+      <span className="label">{label}</span>
+      {children}
+    </div>
+  );
+}
+
+export function Select<T extends string>({ value, options, onChange, label }: {
+  value: T; options: { value: T; label: string }[]; onChange: (v: T) => void; label: string;
+}) {
+  return (
+    <select className="select" value={value} aria-label={label} onChange={(e) => onChange(e.target.value as T)}>
+      {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+    </select>
+  );
+}
+
+/** A number box with a stepper, like the form's Value and Notification Timeout. null means empty. */
+export function NumberInput({ value, onChange, step = 1, min, placeholder, unit, label, className = "" }: {
+  value: number | null; onChange: (v: number | null) => void; step?: number; min?: number;
+  placeholder?: string; unit?: string; label: string; className?: string;
+}) {
+  const bump = (dir: 1 | -1) => {
+    const next = (value ?? 0) + dir * step;
+    onChange(min !== undefined ? Math.max(min, next) : next);
+  };
+  return (
+    <div className={`number ${className}`}>
+      <input type="number" inputMode="decimal" value={value ?? ""} placeholder={placeholder} aria-label={label} step={step} min={min}
+        onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))} />
+      {unit && value !== null && <span className="unit">{unit}</span>}
+      <span className="steps">
+        <button type="button" aria-label={`Increase ${label}`} onClick={() => bump(1)}><Chevron up /></button>
+        <button type="button" aria-label={`Decrease ${label}`} onClick={() => bump(-1)}><Chevron /></button>
+      </span>
+    </div>
+  );
+}
+
+export function Toggle({ on, onChange, label }: { on: boolean; onChange: (v: boolean) => void; label: string }) {
+  return (
+    <button type="button" className="toggle" role="switch" aria-checked={on} onClick={() => onChange(!on)}>
+      <span className="track" aria-hidden="true" />
+      {label}
+    </button>
+  );
+}
+
+export function Segmented<T extends string>({ value, options, onChange, label }: {
+  value: T; options: { value: T; label: ReactNode }[]; onChange: (v: T) => void; label: string;
+}) {
+  return (
+    <div className="segmented" role="group" aria-label={label}>
+      {options.map((o) => (
+        <button key={o.value} type="button" aria-pressed={o.value === value} onClick={() => onChange(o.value)}>{o.label}</button>
+      ))}
+    </div>
+  );
+}
+
+export function Callout({ children }: { children: ReactNode }) {
+  return (
+    <div className="callout">
+      <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="8.25" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M10 9v5M10 6.2v.1" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" /></svg>
+      <div>{children}</div>
+    </div>
+  );
+}
+
+export const MailIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="4.5" width="15" height="11" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M3 5.5l7 5.5 7-5.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" /></svg>
+);
+
+export const ChartIcon = () => (
+  <svg width="22" height="16" viewBox="0 0 22 16" aria-hidden="true"><path d="M1 12l5-6 4 3 5-6 6 5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round" /><path d="M1 15h20" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>
+);
+
+function Chevron({ up = false }: { up?: boolean }) {
+  return <svg width="10" height="6" viewBox="0 0 10 6" aria-hidden="true"><path d={up ? "M1 5l4-4 4 4" : "M1 1l4 4 4-4"} fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
+
+/** A notification as the recipient would see it. */
+export function Mail({ tone, name, when, children }: { tone: "sem" | "thr"; name: string; when: string; children: ReactNode }) {
+  return (
+    <div className={`mail ${tone}`}>
+      <div className="mail-head"><MailIcon /><b>{name}</b><span className="muted">{when}</span></div>
+      <div className="mail-body">{children}</div>
     </div>
   );
 }

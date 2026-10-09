@@ -6,7 +6,8 @@ import { TZ, timeOf, type Hourly, type SeriesKey } from "./data.ts";
 
 /** What a snapshot covers, for the compile prompt (03_compile.py's `snapshot` field). */
 export const SNAPSHOT_DESCRIPTION =
-  "one hour (time, weekday and date); ERCOT demand (hourly average and 5-minute peak) and its change from " +
+  "one hour (time, weekday and date); the temperature across ERCOT weighted by demand, and in Dallas-Fort " +
+  "Worth and Houston; ERCOT demand (hourly average and 5-minute peak) and its change from " +
   "the hour before; solar output; wind output, this hour and over the past 24 hours; battery discharging and " +
   "charging; net load (demand minus wind and solar); hub real-time price (hourly average, low and high) and " +
   "the day-ahead price; non-spinning reserve price (average and high); physical responsive capability " +
@@ -16,6 +17,7 @@ export const SNAPSHOT_DESCRIPTION =
 const WINDOW = 30 * 24;
 
 const gw = (mw: number) => `${(mw / 1000).toFixed(1)} GW`;
+const deg = (f: number) => `${Math.round(f)}°F`;
 const usd = (x: number) => `${x < 0 ? "-" : ""}$${Math.abs(Math.round(x)).toLocaleString("en-US")}/MWh`;
 const hour = (t: Date) => t.toLocaleTimeString("en-US", { timeZone: TZ, hour: "numeric" });
 
@@ -45,6 +47,19 @@ export function snapshot(d: Hourly, i: number): string {
   const date = t.toLocaleDateString("en-US", { timeZone: TZ, weekday: "long", month: "long", day: "numeric", year: "numeric" });
   const p: string[] = [`Hourly snapshot of the ERCOT grid for ${hour(t)} to ${hour(timeOf(d, i + 1))} on ${date}, Texas time.`];
   const d0 = dayStart(d, i);
+
+  const temp = v("temp");
+  if (temp !== null) {
+    const dfw = v("temp_dfw");
+    const hou = v("temp_hou");
+    let s = `The demand-weighted temperature across ERCOT was ${deg(temp)}`;
+    if (dfw !== null && hou !== null) s += ` (${deg(dfw)} in Dallas-Fort Worth, ${deg(hou)} in Houston)`;
+    const hi = prior(d, "temp", i, "max");
+    const lo = prior(d, "temp", i, "min");
+    if (hi !== null && temp > hi) s += ", the hottest hour in the past 30 days";
+    else if (lo !== null && temp < lo) s += ", the coldest hour in the past 30 days";
+    p.push(s + ".");
+  }
 
   const load = v("load");
   if (load !== null) {
