@@ -138,7 +138,7 @@ function Story({ d }: { d: Demo }) {
       </header>
 
       <div className="card" id="replay">
-        <Section title="Replay: July 22, 2026" help={<>
+        <Section title="July 22, 2026" help={<>
           ERCOT set an all-time demand record at 4:55 PM, but the grid didn't get tight until the evening. Here is the same worry
           set up both ways, checked on every 5-minute row of the day. <a href={d.scenario.blog_url}>Grid Status's write-up of the day</a>
         </>}>
@@ -266,10 +266,7 @@ function Story({ d }: { d: Demo }) {
       </div>
 
       <div className="card cta">
-        <div>
-          <h2 className="section-title">Try it in the alert form</h2>
-          <p>Describe your own condition, pick any week from December 2025 to October 2026, and see when it would have notified you, next to a threshold.</p>
-        </div>
+        <p>Describe your own condition, pick any week from December 2025 to October 2026, and see when it would have notified you, next to a threshold.</p>
         <a className="btn" href={`${BASE}try/`}>Create an alert</a>
       </div>
     </>

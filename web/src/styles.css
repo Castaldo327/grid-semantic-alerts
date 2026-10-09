@@ -132,7 +132,6 @@ code, .mono { font-family: var(--mono); font-size: 0.86em; }
 .eyebrow { font-size: 13px; font-weight: 600; color: var(--mint-ink); margin: 0; }
 h1 { font-size: 32px; line-height: 1.15; letter-spacing: -0.02em; font-weight: 600; margin: 8px 0 10px; }
 .lede { font-size: 17px; color: var(--muted); max-width: 760px; margin: 0; }
-.actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; }
 
 /* cards and form sections, as in the alert form */
 .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 28px 24px; margin-top: 20px; }
@@ -311,7 +310,7 @@ details.read .rule { margin-top: 8px; }
 .stats b { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
 .stats span { font-size: 13px; color: var(--muted); }
 .cta { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
-.cta p { margin: 4px 0 0; color: var(--muted); max-width: 640px; }
+.cta p { margin: 0; color: var(--ink-2); max-width: 640px; }
 
 /* create alert: the form beside its preview. The form is two cards that read as one, so that on a
    narrow screen the preview can sit between what you monitor and how you're notified. */
