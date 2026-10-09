@@ -1,0 +1,17 @@
+# secrets
+.env
+.env.*
+!.env.example
+
+# local data: raw pulls, model cache and intermediates (only web/public/demo/*.json ships)
+data/
+
+# python / node / build
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+node_modules/
+dist/
+.vercel
+.DS_Store
