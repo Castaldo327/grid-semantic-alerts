@@ -154,6 +154,34 @@ function Chevron({ up = false }: { up?: boolean }) {
   return <svg width="10" height="6" viewBox="0 0 10 6" aria-hidden="true"><path d={up ? "M1 5l4-4 4 4" : "M1 1l4 4 4-4"} fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>;
 }
 
+/** One alert's side of a moment, under the charts: what it sent, then why. Threshold left, description right. */
+export function AlertCol({ tone, children }: { tone: "sem" | "thr"; children: ReactNode }) {
+  return (
+    <div className="alert-col">
+      <div className="alert-col-head"><span className={`key-dot ${tone}`} />{tone === "thr" ? "Threshold" : "Describe it"}</div>
+      {children}
+    </div>
+  );
+}
+
+/** What an alert did at this moment when it sent nothing. */
+export function Quiet({ children }: { children: ReactNode }) {
+  return <p className="quiet">{children}</p>;
+}
+
+/** The threshold's check at one moment, laid out like the model's answers: the value, then the condition met or not. */
+export function ThresholdCheck({ label, value, met, needs }: { label: ReactNode; value: string; met: boolean; needs: string }) {
+  return (
+    <div className="answers">
+      <div>
+        <div className="q">{label}</div>
+        <div className="check-val">{value}</div>
+        <div className="conds"><span className={met ? "met" : ""}>{met ? "✓" : "✗"} needs {needs}</span></div>
+      </div>
+    </div>
+  );
+}
+
 /** A notification as the recipient would see it. */
 export function Mail({ tone, name, when, children }: { tone: "sem" | "thr"; name: string; when: string; children: ReactNode }) {
   return (

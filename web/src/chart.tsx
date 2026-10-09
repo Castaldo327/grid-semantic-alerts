@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 
 export const M = { left: 40, right: 8 };
 const MARK = 16; // marker lane above the plot when a panel has firing markers
+const R = 4.5; // marker radius
 
 export function useWidth<T extends HTMLElement>(): [React.RefObject<T>, number] {
   const ref = useRef<T>(null);
@@ -106,7 +107,7 @@ export interface PanelProps {
   band?: [(number | null)[], (number | null)[]];
   domain?: [number, number];
   ticks?: number[];
-  refLine?: { value: number; label: string; tone: "sem" | "thr"; align?: "start" | "end" };
+  refLine?: { value: number; tone: "sem" | "thr" }; // where the alert notifies; its value is labeled in the axis margin
   shade?: boolean[];
   tone?: "sem" | "thr";
   markers?: number[];
@@ -139,8 +140,19 @@ export function Panel(p: PanelProps) {
     lo -= pad;
     hi += pad;
   }
-  const ticks = p.ticks ?? niceTicks(lo, hi);
   const y = (v: number) => bottom - ((v - lo) / (hi - lo || 1)) * plotH;
+  const refY = p.refLine ? y(p.refLine.value) : null;
+  const ticks = (p.ticks ?? niceTicks(lo, hi)).filter((v) => refY === null || Math.abs(y(v) - refY) > 10);
+
+  // Notifications closer together than a marker is wide (hourly ones, back to back) draw as one pill;
+  // each still has its own target, and the picked one shows as a dot on top.
+  const groups: number[][] = [];
+  for (const i of p.markers ?? []) {
+    const g = groups[groups.length - 1];
+    if (g && X.x(i) - X.x(g[g.length - 1]) < 2 * R + 2) g.push(i);
+    else groups.push([i]);
+  }
+  const grouped = new Set(groups.filter((g) => g.length > 1).flat());
 
   const line = linePath(values, X, y);
   const half = X.step / 2;
@@ -172,11 +184,10 @@ export function Panel(p: PanelProps) {
             width={Math.min(X.width - M.right, X.x(b) + half) - Math.max(M.left, X.x(a) - half)} height={plotH} />
         ))}
         {p.band && <path className="band" d={bandPath(p.band[0], p.band[1], X, y)} />}
-        {p.refLine && (
+        {p.refLine && refY !== null && (
           <>
-            <line className={`ref ${p.refLine.tone}`} x1={M.left} x2={X.width - M.right} y1={y(p.refLine.value)} y2={y(p.refLine.value)} />
-            <text className="ref-label" y={y(p.refLine.value) - 5} {...(p.refLine.align === "start"
-              ? { x: M.left + 4, textAnchor: "start" } : { x: X.width - M.right - 2, textAnchor: "end" })}>{p.refLine.label}</text>
+            <line className={`ref ${p.refLine.tone}`} x1={M.left} x2={X.width - M.right} y1={refY} y2={refY} />
+            <text className="ref-tick" x={M.left - 6} y={refY + 3.5} textAnchor="end">{yFmt(p.refLine.value)}</text>
           </>
         )}
         <path className="series" d={line} style={{ stroke: p.color ?? "var(--line)" }} />
@@ -197,11 +208,17 @@ export function Panel(p: PanelProps) {
         <rect x={M.left} y={0} width={X.width - M.left - M.right} height={bottom} fill="transparent" style={{ cursor: "crosshair" }}
           onPointerMove={move} onPointerDown={move} onPointerLeave={() => p.onHover(null)}
           onClick={(e) => { const r = (e.currentTarget.ownerSVGElement as SVGSVGElement).getBoundingClientRect(); p.onPick(X.invert(e.clientX - r.left)); }} />
+        {groups.filter((g) => g.length > 1).map((g) => (
+          <rect key={`run${g[0]}`} className={`m-run ${tone}`} x={X.x(g[0]) - R} y={MARK / 2 - R}
+            width={X.x(g[g.length - 1]) - X.x(g[0]) + 2 * R} height={2 * R} rx={R} />
+        ))}
         {p.markers?.map((i) => (
-          <g key={i} className={`marker ${tone}${i === p.pinned ? " on" : ""}`} onClick={() => p.onPick(i)} onPointerEnter={() => p.onHover(i)}
+          <g key={i} className={`marker ${tone}${i === p.pinned ? " on" : ""}${grouped.has(i) ? " grouped" : ""}`} onClick={() => p.onPick(i)}
+            onPointerEnter={() => p.onHover(i)} tabIndex={0} onFocus={() => p.onHover(i)} onBlur={() => p.onHover(null)}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); p.onPick(i); } }}
             role="button" aria-label={p.markerLabel ? p.markerLabel(i) : "Alert"}>
-            <circle className="hit" cx={X.x(i)} cy={MARK / 2} r={12} />
-            <circle className="m" cx={X.x(i)} cy={MARK / 2} r={4.5} />
+            <circle className="hit" cx={X.x(i)} cy={MARK / 2} r={grouped.has(i) ? Math.max(2, X.step / 2) : 12} />
+            <circle className="m" cx={X.x(i)} cy={MARK / 2} r={R} />
           </g>
         ))}
       </svg>

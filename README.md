@@ -8,12 +8,12 @@ rather than text, and ordinary code decides whether to fire.
 
 Two pages, both on real Grid Status API data:
 
-- **Overview** (`/`): the pitch. The July 22 story told in the alert form's own terms: today's
-  threshold row (Select Series / Is / Value, Notification Timeout) next to a new "Describe it"
-  option, and the notifications each would have sent, replayed from a saved run.
-- **Create alert** (`/try/`): the alert form with "Describe it" added and a new Preview section.
-  Pick any week from Dec 5, 2025 to Oct 8, 2026 and see when the description, or a threshold,
-  would have notified you. Describing runs with your own OpenAI key, straight from the browser.
+- **Overview** (`/`): the pitch. July 22 told in the alert form's own terms: today's threshold
+  row (Select Series / Is / Value) next to a new "Describe it" option, what each would have sent
+  and when, then a replay of the day, all from a saved run.
+- **Create alert** (`/try/`): the alert form with "Describe it" added, and a new Preview beside it.
+  Pick any week from Dec 5, 2025 to Oct 8, 2026 and see when the description and a threshold would
+  have notified you. Describing runs with your own OpenAI key, straight from the browser.
 
 The UI follows Grid Status's alert form (gray canvas, white cards, the same section titles and
 helper text, series named as its picker names them) because this is pitched as an enhancement to
@@ -81,32 +81,46 @@ afternoon. The grid only tightened after sunset.
 
 ## The Overview page
 
-- "What would you like to monitor?" shows both alerts as form sections: the threshold
-  (`ERCOT Load: load`, greater than 90000, 30-minute Notification Timeout) and the description,
-  with the questions and rule it compiled to. Each lists its notification times; clicking one
-  jumps the replay there.
-- The replay: five moments of the day on three stacked charts (load with the threshold, the
-  model's answer with its cutoff, reserves). Under the charts, the notifications sent at that
-  time as emails (a sentence alert's email carries gpt-6-luna's one-line reason), the model's
-  answers and which conditions they meet, and the exact text it read.
-- Hover to look at any 5-minute row, click to pin it, ← → to step (Shift for an hour). Links can
-  point at a moment: `#t=20:10`.
+One card leads with the outcome, then lets you check it:
+
+- Both alerts as the form would show them, the threshold (`ERCOT Load: load`, greater than 90000)
+  and the description, each with how many notifications it sent and when. Both use a 30-minute
+  Notification Timeout.
+- Three stacked charts: load with the threshold, the model's answer with its cutoff, reserves.
+  Dots are notifications, shading marks rows where the condition held, and the dashed line is
+  where each alert notifies, its value labeled in the axis margin.
+- Five moments of the day, then the hour in detail with the threshold on the left and the
+  description on the right: the email each sent (the description's carries gpt-6-luna's one-line
+  reason) or "No notification", then why (the threshold's value against its line; the model's
+  answers and which conditions they meet), and the text the model read. The questions and rule
+  are under How it works.
+- Hover to look at any 5-minute row, click (or Enter on a notification dot) to pin it, ← → to
+  step (Shift for an hour). Links can point at a moment: `#t=20:10`.
 
 ## The Create alert page
 
-The alert form's sections in order (Name your alert, What would you like to monitor?, How should
-you be notified?, Notification Timeout, Alert Status, Create), plus:
+The alert form on the left (Name your alert, What would you like to monitor?, Notification
+Timeout, then How should you be notified?, Alert Status, Create) and the new Preview on the right,
+so a change shows its effect without scrolling. On a phone the Preview sits between the monitoring
+fields and the notification settings. Added to the form:
 
 - **"Describe it"** next to "Threshold" under "What would you like to monitor?". Threshold mode
   is the familiar row: a series picker named the way Grid Status names series, an operator and a
   value. Each hour is checked against its highest value for "greater than" (the 5-minute peak,
   the highest SCED price) and its lowest for "less than", so it notifies when any row in the hour
   would.
-- **Preview**, the new section: a calendar and the week's charts, with both alerts tallied side
-  by side. The Notification Timeout applies to both. Notifications appear as emails under the
-  charts. Email, Alert Status and Create are there for the form's shape; nothing is saved or sent.
-- **Start from an example** loads one of five suggested weeks with its alert name, its
-  description and the threshold someone would set today.
+- **Preview**, new: a calendar, then the chosen week with both alerts at once, each with its
+  notifications (back-to-back hourly ones draw as one pill), whichever one the form is set to.
+  Each day is headed with what happened that day, and the grid data underneath (reserves, hub
+  price, demand, temperature, wind) is there to judge each notification. Below, one hour in
+  detail: each alert's email or why it stayed quiet. ‹ › steps between notifications, a day
+  heading jumps to that day, ← → move an hour. The Notification Timeout applies to both alerts.
+  Email, Alert Status and Create are there for the form's shape; nothing is saved or sent.
+- **A description shows nothing until it's previewed.** In its chart's place is the key box and
+  what the preview costs. An unchanged example shows its saved run ("Run it yourself" reruns it
+  with your key); change a word and it's empty again.
+- **Start from an example**, above both columns, loads one of five suggested weeks with its alert
+  name, its description and the threshold someone would set today.
 
 Most weeks are uneventful, and an alert run on an ordinary week has nothing to find. So the page
 starts from what happened:
@@ -114,7 +128,7 @@ starts from what happened:
 - **A calendar of the whole range**, each day shaded by how many unusual signals it had: reserves
   below 5.5 GW, hub price at or above $300/MWh, non-spin at or above $100/MWh, hub price below
   -$10/MWh, demand at or above 90 GW, wind under 6 GW for the day, and a demand-weighted
-  temperature at or above 100°F or at or below 32°F. 74 of 308 days qualify. Hovering a day says
+  temperature at or above 100°F or at or below 32°F. 74 of 308 days qualify. Hovering a day shows
   what happened; clicking starts the week there.
 - **Five suggested weeks**, one per kind of event, each with an example description, a threshold
   for comparison, and a saved run, so the page shows a result before anyone enters a key:
