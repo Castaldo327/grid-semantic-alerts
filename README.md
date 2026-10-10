@@ -21,7 +21,7 @@ that form, not a separate product.
 
 It is an independent concept demo, not affiliated with Grid Status.
 
-**Live demo:** _(Vercel URL)_ · **Results, including failures:** [FINDINGS.md](FINDINGS.md)
+**Live demo:** [grid-semantic-alerts.vercel.app](https://grid-semantic-alerts.vercel.app) · **Results, including failures:** [FINDINGS.md](FINDINGS.md)
 
 ## How it works
 
