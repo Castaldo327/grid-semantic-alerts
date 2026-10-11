@@ -26,16 +26,20 @@ export interface XScale {
   width: number;
   n: number;
   step: number;
+  left: number; // room for the y axis, or for row labels
+  right: number;
 }
 
-export function makeX(n: number, width: number): XScale {
-  const step = (width - M.left - M.right) / Math.max(1, n - 1);
+export function makeX(n: number, width: number, left = M.left, right = M.right): XScale {
+  const step = (width - left - right) / Math.max(1, n - 1);
   return {
-    x: (i) => M.left + i * step,
-    invert: (px) => Math.max(0, Math.min(n - 1, Math.round((px - M.left) / step))),
+    x: (i) => left + i * step,
+    invert: (px) => Math.max(0, Math.min(n - 1, Math.round((px - left) / step))),
     width,
     n,
     step,
+    left,
+    right,
   };
 }
 
@@ -53,7 +57,7 @@ function niceTicks(lo: number, hi: number): number[] {
   return [lo, hi];
 }
 
-function spans(flags: boolean[]): [number, number][] {
+export function spans(flags: boolean[]): [number, number][] {
   const out: [number, number][] = [];
   let a = -1;
   flags.forEach((f, i) => {
@@ -165,7 +169,7 @@ export function Panel(p: PanelProps) {
 
   return (
     <figure className="panel">
-      <figcaption className="panel-head">
+      <figcaption className="panel-head" style={{ marginLeft: X.left }}>
         <span className="panel-title">{p.title}</span>
         {p.value !== undefined && <span className="panel-value">{p.value}</span>}
       </figcaption>
@@ -173,21 +177,21 @@ export function Panel(p: PanelProps) {
         <g className="tick">
           {ticks.map((v) => (
             <g key={v}>
-              <line x1={M.left} x2={X.width - M.right} y1={y(v)} y2={y(v)} />
-              <text x={M.left - 6} y={y(v) + 3.5} textAnchor="end">{yFmt(v)}</text>
+              <line x1={X.left} x2={X.width - X.right} y1={y(v)} y2={y(v)} />
+              <text x={X.left - 6} y={y(v) + 3.5} textAnchor="end">{yFmt(v)}</text>
             </g>
           ))}
         </g>
         {p.dividers?.map((i) => <line key={i} className="divider" x1={X.x(i) - half} x2={X.x(i) - half} y1={top} y2={bottom} />)}
         {p.shade && spans(p.shade).map(([a, b]) => (
-          <rect key={a} className={`shade ${tone}`} x={Math.max(M.left, X.x(a) - half)} y={top}
-            width={Math.min(X.width - M.right, X.x(b) + half) - Math.max(M.left, X.x(a) - half)} height={plotH} />
+          <rect key={a} className={`shade ${tone}`} x={Math.max(X.left, X.x(a) - half)} y={top}
+            width={Math.min(X.width - X.right, X.x(b) + half) - Math.max(X.left, X.x(a) - half)} height={plotH} />
         ))}
         {p.band && <path className="band" d={bandPath(p.band[0], p.band[1], X, y)} />}
         {p.refLine && refY !== null && (
           <>
-            <line className={`ref ${p.refLine.tone}`} x1={M.left} x2={X.width - M.right} y1={refY} y2={refY} />
-            <text className="ref-tick" x={M.left - 6} y={refY + 3.5} textAnchor="end">{yFmt(p.refLine.value)}</text>
+            <line className={`ref ${p.refLine.tone}`} x1={X.left} x2={X.width - X.right} y1={refY} y2={refY} />
+            <text className="ref-tick" x={X.left - 6} y={refY + 3.5} textAnchor="end">{yFmt(p.refLine.value)}</text>
           </>
         )}
         <path className="series" d={line} style={{ stroke: p.color ?? "var(--line)" }} />
@@ -205,7 +209,7 @@ export function Panel(p: PanelProps) {
             ))}
           </g>
         )}
-        <rect x={M.left} y={0} width={X.width - M.left - M.right} height={bottom} fill="transparent" style={{ cursor: "crosshair" }}
+        <rect x={X.left} y={0} width={X.width - X.left - X.right} height={bottom} fill="transparent" style={{ cursor: "crosshair" }}
           onPointerMove={move} onPointerDown={move} onPointerLeave={() => p.onHover(null)}
           onClick={(e) => { const r = (e.currentTarget.ownerSVGElement as SVGSVGElement).getBoundingClientRect(); p.onPick(X.invert(e.clientX - r.left)); }} />
         {groups.filter((g) => g.length > 1).map((g) => (

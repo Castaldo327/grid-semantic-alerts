@@ -1,6 +1,6 @@
-// Saved example runs for the "Try it" page: each suggested week's example alert, run with the same code
-// the page runs in the browser (src/explore/run.ts), written to public/explore/runs/<week>.json. The
-// page shows them until a visitor runs their own alert.
+// Saved example runs, made with the same code the pages run in the browser (src/explore/run.ts): each
+// suggested week's example alert, written to public/explore/runs/<week>.json. The Create alert page shows
+// them until a visitor runs their own; the Overview replays the winter-freeze one (src/explore/featured.ts).
 // Every request is cached in ../data/cache/luna-web/, keyed by the request, so a re-run replays the
 // same answers and spends nothing.
 // Run: node scripts/save_runs.ts   (needs OPENAI_API_KEY or OPEN_AI_KEY in ../.env)
@@ -36,22 +36,23 @@ const data: Hourly = JSON.parse(readFileSync(new URL("../public/explore/ercot_ho
 const outDir = new URL("../public/explore/runs/", import.meta.url);
 mkdirSync(outDir, { recursive: true });
 
-for (const week of data.weeks) {
+const jobs = data.weeks.map((w) => ({ file: w.start, start: w.start, sentence: w.example }));
+for (const week of jobs) {
   try {
-    const run = await runWeek({ key, cache }, data, week.start, week.example);
-    const out = new URL(`${week.start}.json`, outDir);
+    const run = await runWeek({ key, cache }, data, week.start, week.sentence);
+    const out = new URL(`${week.file}.json`, outDir);
     // Keep the old file (and its date) when a cached re-run reproduces it exactly.
     const old = existsSync(out) ? JSON.parse(readFileSync(out, "utf8")) : null;
     if (old && JSON.stringify({ ...old, created: "" }) === JSON.stringify({ ...run, created: "" })) {
-      console.log(`same  ${week.start}`);
+      console.log(`same  ${week.file}`);
       continue;
     }
     writeFileSync(out, JSON.stringify(run) + "\n");
     const hours = run.rule_true.filter(Boolean).length;
-    console.log(`saved ${week.start}  ${run.compiled.rule}  ->  rule met in ${hours} of ${run.rule_true.length} hours, ` +
+    console.log(`saved ${week.file}  ${run.compiled.rule}  ->  rule met in ${hours} of ${run.rule_true.length} hours, ` +
       `${run.stats!.input_tokens} input tokens, $${run.stats!.cost_usd}, ${run.compiled.attempts.length} compile attempt(s)`);
   } catch (e) {
-    console.error(`FAIL  ${week.start}: ${describe(e)}`);
+    console.error(`FAIL  ${week.file}: ${describe(e)}`);
     process.exitCode = 1;
   }
 }

@@ -1,19 +1,21 @@
 # Sentence alerts for ERCOT
 
-Grid alerts usually watch one number, such as ERCOT load above 90,000 MW. This demo tests alerts
-written as a sentence instead: *"Tell me when ERCOT is actually heading toward scarcity, not just
-setting demand records."* gpt-6-luna turns the sentence into two questions **once**. The OpenAI
-Decisions API answers them for **every** 5-minute snapshot of the grid, returning probabilities
-rather than text, and ordinary code decides whether to fire.
+Grid Status alerts are Boolean: each one checks one series against one line, true or false.
+Customers think in situations, and a situation has no line. This demo makes one into a single alert:
+*"Warn me when the freeze is actually leaving ERCOT short of reserves, not just driving up prices."*
+gpt-6-luna compiles the sentence into questions **once**. The OpenAI Decisions API grades **every**
+new row with probabilities rather than text, giving the situation a degree of truth the way fuzzy
+logic does, and ordinary code decides whether to notify.
 
 Two pages, both on real Grid Status API data:
 
-- **Overview** (`/`): the pitch. July 22 told in the alert form's own terms: today's threshold
-  row (Select Series / Is / Value) next to a new "Describe it" option, what each would have sent
-  and when, then a replay of the day, all from a saved run.
-- **Create alert** (`/try/`): the alert form with "Describe it" added, and a new Preview beside it.
-  Pick any week from Dec 5, 2025 to Oct 8, 2026 and see when the description and a threshold would
-  have notified you. Describing runs with your own OpenAI key, straight from the browser.
+- **Overview** (`/`): the pitch, written for an engineering audience. The winter freeze of
+  Jan 22–28, 2026, checked two ways: the four threshold alerts it would take today, one per part of
+  the sentence (Boolean, 115 notifications), and the sentence itself (fuzzy, 2), with the hours where
+  they part ways. It replays a saved run.
+- **Create alert** (`/try/`): the alert form with "Describe it" added, and a Preview beside it.
+  Pick any week from Dec 5, 2025 to Oct 8, 2026 and see when a description and a threshold would
+  have notified you. Your own description runs with your own OpenAI key, straight from the browser.
 
 The UI follows Grid Status's alert form (gray canvas, white cards, the same section titles and
 helper text, series named as its picker names them) because this is pitched as an enhancement to
@@ -26,25 +28,29 @@ It is an independent concept demo, not affiliated with Grid Status.
 ## How it works
 
 ```
- "Tell me when ERCOT is heading toward scarcity..."
+ "Warn me when the freeze is actually leaving ERCOT short of reserves, not just driving up prices."
         │
-        ▼  once per alert          gpt-6-luna, Responses API (JSON)       pipeline/03_compile.py
- ┌─────────────────────────────────────────────────────────────────┐
- │ probability scarcity_approaching "Is ERCOT heading toward...?"  │  validated with pydantic,
- │ choice      ercot_state  [scarcity approaching | demand record  │  rejected and retried (≤3)
- │                           only | nothing unusual]               │  if the rule doesn't rule
- │ rule  scarcity_approaching >= 0.7 && ercot_state.'…' >= 0.6     │  out the "not" case
- └─────────────────────────────────────────────────────────────────┘
+        ▼  once per alert         gpt-6-luna, Responses API (JSON)        web/src/explore/compile.ts
+ ┌──────────────────────────────────────────────────────────────────┐
+ │ probability freeze_short_reserves  "Is the freeze leaving ERCOT  │  validated, rejected and
+ │                                     short of reserves right now?"│  retried (≤3) if it
+ │ choice      freeze_effect  [short reserves | higher prices only  │  doesn't fit, such as a
+ │                             | nothing unusual]                   │  rule that doesn't rule
+ │ rule  freeze_short_reserves >= 0.7                               │  out "just driving up
+ │         && freeze_effect.'short reserves' >= 0.7                 │  prices"
+ └──────────────────────────────────────────────────────────────────┘
         │
-        ▼  every 5 minutes          gpt-6-luna, Decisions API             pipeline/04_decide.py
- grid snapshot as short prose ──► { scarcity_approaching: P(yes)=0.72,
- (Grid Status API data,            ercot_state: {scarcity approaching: 1.00, ...} }
-  pipeline/02_state.py)
+        ▼  every new row          gpt-6-luna, Decisions API               web/src/explore/run.ts
+ grid snapshot as short prose ──► { freeze_short_reserves: P(yes)=0.80,
+ (Grid Status API data, only        freeze_effect: {short reserves: 1.00, ...} }
+  what was known at that hour)
         │
-        ▼  plain code, no model     rule + 30-min cooldown                pipeline/rules.py, web/src/rule.ts
- fire / don't fire ──► on a firing only: a 1–2 sentence explanation (gpt-6-luna, numbers
-                       checked against the snapshot)                      pipeline/05_compose.py
+        ▼  plain code, no model   rule + Notification Timeout             web/src/rule.ts
+ notify / don't notify
 ```
+
+The Python pipeline does the same with 5-minute rows for July 22, 2026, plus a one-line
+explanation on each notification; that study is in [FINDINGS.md](FINDINGS.md).
 
 ```
 pipeline/   (Python, runs locally, never deployed)
@@ -58,44 +64,51 @@ pipeline/   (Python, runs locally, never deployed)
   08_range_state.py  hourly series + unusual days + suggested weeks → web/public/explore/ercot_hourly.json
   luna.py            the pipeline's model client (Decisions + Responses API), with a request cache
 web/        (Vite + React + TypeScript, static, deployed)
-  src/App.tsx              the Overview page (the July 22 replay)
-  src/explore/             the Create alert page; snapshot.ts, compile.ts, openai.ts and run.ts have no
-                           UI code, so Node runs the same code for the saved runs
+  src/App.tsx              the Overview page (one sentence vs. the threshold alerts it would take)
+  src/explore/             the Create alert page; featured.ts (the Overview's example and its threshold
+                           alerts), snapshot.ts, compile.ts, openai.ts and run.ts have no UI code, so
+                           Node runs the same code for the saved runs
   scripts/save_runs.ts     suggested weeks' example alerts → web/public/explore/runs/<week>.json
 ```
 
-The page recomputes every firing in the browser from the precomputed answers (`web/src/rule.ts`)
-and shows whether it matches the pipeline. `npm run check-rules` checks the same thing in CI
-style.
+Both pages recompute every notification in the browser from saved answers (`web/src/rule.ts`) and
+show whether they match. `npm run check-rules` checks the pipeline's July 22 run and every saved
+run the same way.
 
-## The test day
+## The test week
 
-On July 22, 2026 ([Grid Status blog](https://blog.gridstatus.io/ercot-record-july-2026)), ERCOT set
-an all-time demand record of 91.3 GW, but batteries kept prices low and reserves near 17 GW all
-afternoon. The grid only tightened after sunset.
+Jan 22–28, 2026: a hard freeze from the 24th to the 27th (down to 19°F demand-weighted, 13°F in
+Dallas) sent the hub price to $938/MWh on the 25th with about 14 GW of reserves to spare. The
+shortage came on the morning of the 28th: reserves fell to 5.7 GW and the price hit $1,350.
 
-| alert | fired |
+| alert | notifications |
 |---|---|
-| Threshold: `ERCOT load > 90,000 MW` | 8 times, 2:55–6:25 PM (the record afternoon) |
-| Sentence: "...heading toward scarcity, not just setting demand records" | 4 times, 8:10–10:25 PM (as reserves fell to 6.6 GW) |
+| Dallas ≤ 32°F, for "the freeze" | 91 |
+| Reserves < 5,500 MW, for "short of reserves" | 0: reserves never fell below 5.7 GW |
+| Non-spin ≥ $100, for "short of reserves" | 2: Wed 28, 7 and 8 AM |
+| Hub price > $300, for "driving up prices" | 22, on 5 days |
+| The sentence | 2: Wed 28, 6 and 7 AM |
+
+The sentence's first notification came an hour before any reserves alert. At 6,000 MW instead of
+5,500, the reserves alert would have caught one hour (7 AM); at 5,500 it caught none. The
+highest-priced hour the sentence let pass ($938 on Sun 25 at 6 PM, with 14.1 GW of reserves) scored
+38%, and most hours sit near 12%.
 
 ## The Overview page
 
-One card leads with the outcome, then lets you check it:
-
-- Both alerts as the form would show them, the threshold (`ERCOT Load: load`, greater than 90000)
-  and the description, each with how many notifications it sent and when. Both use a 30-minute
-  Notification Timeout.
-- Three stacked charts: load with the threshold, the model's answer with its cutoff, reserves.
-  Dots are notifications, shading marks rows where the condition held, and the dashed line is
-  where each alert notifies, its value labeled in the axis margin.
-- Five moments of the day, then the hour in detail with the threshold on the left and the
-  description on the right: the email each sent (the description's carries gpt-6-luna's one-line
-  reason) or "No notification", then why (the threshold's value against its line; the model's
-  answers and which conditions they meet), and the text the model read. The questions and rule
-  are under How it works.
-- Hover to look at any 5-minute row, click (or Enter on a notification dot) to pin it, ← → to
-  step (Shift for an hour). Links can point at a moment: `#t=20:10`.
+- The thesis, then the situation: the freeze sentence and who would write it, a demand-response
+  aggregator that cuts load only in a real shortage.
+- One card shows the week both ways: the four threshold alerts as rows of true and false
+  (classical, Boolean logic) with 115 notifications, above the sentence's degree of truth for every
+  hour (fuzzy logic), its 70% cutoff and 2 notifications.
+- Three hours where they part ways, found in the data: the $938 hour that's expensive but not
+  short, the 6 AM notification that comes before any reserves alert, and the shortage itself. Under
+  them, the hour in detail: the four checks with their values, and the sentence's email with the
+  model's answers and the text it read.
+- How it works, with the run's cost and speed, and "Why I built this", three points in the
+  author's voice.
+- Hover to look at any hour, click (or Enter on a notification dot) to pin it, ← → to step
+  (Shift for a day).
 
 ## The Create alert page
 
@@ -116,11 +129,14 @@ fields and the notification settings. Added to the form:
   detail: each alert's email or why it stayed quiet. ‹ › steps between notifications, a day
   heading jumps to that day, ← → move an hour. The Notification Timeout applies to both alerts.
   Email, Alert Status and Create are there for the form's shape; nothing is saved or sent.
-- **A description shows nothing until it's previewed.** In its chart's place is the key box and
-  what the preview costs. An unchanged example shows its saved run ("Run it yourself" reruns it
-  with your key); change a word and it's empty again.
-- **Start from an example**, above both columns, loads one of five suggested weeks with its alert
-  name, its description and the threshold someone would set today.
+- **Your key and a Preview button** sit under the description, marked demo only, with what the
+  preview costs. A description shows nothing until it's previewed: its chart says what to do
+  next. An unchanged example shows its saved run (Preview reruns it with your key); change a word
+  and it's empty again.
+- **Start from an example**, above both columns: the winter freeze first (the Overview's alert),
+  then the other four suggested weeks, each with its alert name, its description and the threshold
+  someone would set today. **Write your own** clears the
+  description and puts the cursor in it, keeping the week and the threshold for comparison.
 
 Most weeks are uneventful, and an alert run on an ordinary week has nothing to find. So the page
 starts from what happened:
@@ -171,7 +187,7 @@ OPENAI_API_KEY=...          # Decisions API access for gpt-6-luna (OPEN_AI_KEY a
 
 ```sh
 make setup        # uv venv + pip install, npm install
-make all          # July 22 pipeline, the hourly range (07, 08), then the saved example runs
+make all          # July 22 pipeline, the hourly range (07, 08), then the saved runs
 make preview      # build and serve the site locally
 make check        # TS/Python rule parity, saved-run rule check, secret scan of the build
 ```
@@ -196,11 +212,11 @@ deployed, and that config would route every request to it. Set the Root Director
 
 ## Limitations
 
-- One day is a demonstration, not an evaluation. Cutoffs are what the compile chose; none was
-  tuned on labeled data.
+- One week (and one day in the pipeline) is a demonstration, not an evaluation. Cutoffs are what
+  the compile chose; none was tuned on labeled data.
 - The compile isn't stable across runs (the same sentence produced a 0.6 and a 0.7 cutoff), so a
   real product should freeze and display the compiled alert.
-- The second question, meant to separate "scarcity approaching" from "demand record only", picked
+- On July 22, the second question, meant to separate "scarcity approaching" from "demand record only", picked
   "scarcity approaching" during the record afternoon too. The alert's correctness rests on its
   main question.
 - The prose state is a design choice; one wording fix changed a simulated run from 2 firings to 5.

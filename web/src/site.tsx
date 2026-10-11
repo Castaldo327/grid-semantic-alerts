@@ -155,10 +155,10 @@ function Chevron({ up = false }: { up?: boolean }) {
 }
 
 /** One alert's side of a moment, under the charts: what it sent, then why. Threshold left, description right. */
-export function AlertCol({ tone, children }: { tone: "sem" | "thr"; children: ReactNode }) {
+export function AlertCol({ tone, label, children }: { tone: "sem" | "thr"; label?: ReactNode; children: ReactNode }) {
   return (
     <div className="alert-col">
-      <div className="alert-col-head"><span className={`key-dot ${tone}`} />{tone === "thr" ? "Threshold" : "Describe it"}</div>
+      <div className="alert-col-head"><span className={`key-dot ${tone}`} />{label ?? (tone === "thr" ? "Threshold" : "Describe it")}</div>
       {children}
     </div>
   );

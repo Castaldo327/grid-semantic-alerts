@@ -5,6 +5,7 @@ import { AlertCol, Answers, BASE, Callout, Field, Mail, MailIcon, NumberInput, Q
 import { Calendar } from "./Calendar";
 import type { Compiled } from "./compile";
 import { addDays, dayLabel, hourLabel, lastStart, weekLabel, weekOf, type Day, type Hourly, type SeriesKey, type SuggestedWeek, type Week } from "./data";
+import { FEATURED_WEEK } from "./featured";
 import { USD_PER_M_INPUT, describe } from "./openai";
 import { runWeek, type WeekRun } from "./run";
 import { OPS, SERIES, checkedValues, holds, notifications, seriesOf, type SeriesOption, type Threshold } from "./series";
@@ -250,12 +251,17 @@ function Preview({ d, week, mode, name, threshold, thrValues, thrFlags, thrNotes
   );
 }
 
+type Example = SuggestedWeek & { file: string }; // file: its saved run, public/explore/runs/<file>.json
+
 function CreateAlert({ d }: { d: Hourly }) {
+  // One example per suggested week, the Overview's first, so the page opens where the Overview leaves off.
+  const examples = useMemo<Example[]>(() => d.weeks.map((w) => ({ ...w, file: w.start }))
+    .sort((a, b) => Number(b.start === FEATURED_WEEK) - Number(a.start === FEATURED_WEEK)), [d]);
   const initial = useMemo(() => {
     const asked = new URLSearchParams(location.search).get("week");
-    const example = d.weeks.find((w) => w.start === asked) ?? d.weeks[0];
+    const example = examples.find((w) => w.start === asked) ?? examples[0];
     return { example, start: weekOf(d, asked ?? example.start).start };
-  }, [d]);
+  }, [d, examples]);
   const [name, setName] = useState(initial.example.name);
   const [mode, setMode] = useState<Mode>("describe");
   const [threshold, setThreshold] = useState<Threshold>(initial.example.threshold);
@@ -270,8 +276,9 @@ function CreateAlert({ d }: { d: Hourly }) {
   const [progress, setProgress] = useState<Progress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sample, setSample] = useState(false);
-  const [rerun, setRerun] = useState(false); // the key box, opened under a saved example run
   const compiled = useRef(new Map<string, Compiled>());
+  const sentenceRef = useRef<HTMLTextAreaElement>(null);
+  const keyRef = useRef<HTMLInputElement>(null);
   const abort = useRef<AbortController | null>(null);
   const week = useMemo(() => weekOf(d, start), [d, start]);
   const suggested = d.weeks.find((w) => w.start === week.start);
@@ -283,13 +290,15 @@ function CreateAlert({ d }: { d: Hourly }) {
     history.replaceState(null, "", u);
   }, [week.start]);
 
+  // The saved runs of this week's examples, each fetched once.
+  const requested = useRef(new Set<string>());
   useEffect(() => {
-    if (!suggested || week.start in saved) return;
-    fetch(`${BASE}explore/runs/${week.start}.json`).then((r) => (r.ok ? r.json() : null)).catch(() => null)
-      .then((run: WeekRun | null) => setSaved((m) => ({ ...m, [week.start]: run })));
-  }, [week.start, suggested, saved]);
-
-  useEffect(() => setRerun(false), [week.start, sq]);
+    for (const w of examples.filter((x) => x.start === week.start && !requested.current.has(x.file))) {
+      requested.current.add(w.file);
+      fetch(`${BASE}explore/runs/${w.file}.json`).then((r) => (r.ok ? r.json() : null)).catch(() => null)
+        .then((run: WeekRun | null) => setSaved((m) => ({ ...m, [w.file]: run })));
+    }
+  }, [week.start, examples]);
 
   // Only a run made for exactly this description and week: the visitor's own preview, or the saved
   // run of an unchanged example. A custom description starts empty until it's previewed.
@@ -298,8 +307,8 @@ function CreateAlert({ d }: { d: Hourly }) {
     if (progress?.run && fits(progress.run)) return { run: progress.run, source: "live" };
     const mine = [...live].reverse().find(fits);
     if (mine) return { run: mine, source: "live" };
-    const sv = saved[week.start];
-    return sv && fits(sv) ? { run: sv, source: "saved" } : null;
+    const sv = Object.values(saved).find((r): r is WeekRun => !!r && fits(r));
+    return sv ? { run: sv, source: "saved" } : null;
   }, [progress, live, saved, week.start, sq]);
 
   const thrValues = useMemo(() => checkedValues(d, threshold, week.from, week.to), [d, threshold, week]);
@@ -313,6 +322,18 @@ function CreateAlert({ d }: { d: Hourly }) {
     setSentence(w.example);
     setStart(w.start);
     setError(null);
+  };
+  // A blank description on the same week, with the cursor in it. The threshold stays for comparison.
+  const writeOwn = () => {
+    setName("");
+    setSentence("");
+    setMode("describe");
+    setError(null);
+    requestAnimationFrame(() => sentenceRef.current?.focus());
+  };
+  const focusKey = () => {
+    setMode("describe");
+    requestAnimationFrame(() => keyRef.current?.focus());
   };
 
   async function preview() {
@@ -352,47 +373,52 @@ function CreateAlert({ d }: { d: Hourly }) {
   const unusual = week.days.filter((x) => x.tags.length).length;
   const stats = shown?.source === "live" ? shown.run.stats : null;
   // An unchanged example whose saved run is still downloading: don't ask for a key it won't need.
-  const loading = !shown && !!suggested && suggested.example === sq && !(week.start in saved);
+  const loading = !shown && examples.some((w) => w.start === week.start && w.example === sq && !(w.file in saved));
 
-  // The description's preview, in the place its chart will appear: the key and a button, or progress.
+  // Under the description, always there: the demo's key and the Preview button (Stop while it runs).
   const keyBox = (
     <div className="runner">
-      <p className="runner-title">{shown ? "Run this description with your own key" : `Preview your description on ${weekLabel(week)}`}</p>
+      <p className="runner-title">Preview it with your OpenAI key</p>
       <div className="runner-row">
-        <input className="input" type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder="Your OpenAI API key (sk-…)"
+        <input ref={keyRef} className="input" type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder="sk-…"
           aria-label="Your OpenAI API key" autoComplete="off" spellCheck={false} />
-        <button type="button" className="btn" disabled={!key.trim() || sq.length < 8} onClick={preview}>Preview</button>
+        {progress
+          ? <button type="button" className="btn secondary" onClick={() => abort.current?.abort()}>Stop</button>
+          : <button type="button" className="btn" disabled={!key.trim() || sq.length < 8} onClick={preview}>Preview</button>}
       </div>
       <p className="hint">
-        {sq.length < 8 ? "Describe the condition first. " : ""}
-        gpt-6-luna checks each of the {hours} hours from your browser, for about ${cost.toFixed(3)}. Your key stays in this tab and goes
-        only to api.openai.com.{compiled.current.has(sq) ? " This description is already compiled, so the preview reuses it." : ""}
+        {sq.length < 8 ? "Write a description first. " : ""}
+        Demo only: gpt-6-luna checks each of the {hours} hours of {weekLabel(week)} from your browser, for about ${cost.toFixed(3)}. Your
+        key stays in this tab and goes only to api.openai.com.{compiled.current.has(sq) ? " This description is already compiled, so the preview reuses it." : ""}
       </p>
       {error && <p className="error" role="alert">{error}</p>}
     </div>
   );
+  // In the description's chart until it has a run: progress, or what to do next.
   const running = progress && (
     <div className="runner running">
-      <div className="runner-row">
-        <span><b>{progress.text}</b>{progress.total && progress.done ? ` · ${progress.done} of ${progress.total} hours` : "…"}</span>
-        <button type="button" className="btn secondary" onClick={() => abort.current?.abort()}>Stop</button>
-      </div>
+      <p className="runner-row"><span><b>{progress.text}</b>{progress.total && progress.done ? ` · ${progress.done} of ${progress.total} hours` : "…"}</span></p>
       <div className="progress" role="progressbar" aria-label="Preview progress" aria-valuemin={0} aria-valuemax={progress.total} aria-valuenow={progress.done}>
         <i style={{ width: `${(progress.done / Math.max(1, progress.total)) * 100}%` }} />
       </div>
     </div>
   );
+  const prompt = (
+    <p className="runner muted">
+      {loading ? "Loading the example run…"
+        : mode === "threshold" ? <>Not previewed yet. <button type="button" className="link" onClick={() => setMode("describe")}>Switch to Describe it</button> to write a description and preview it.</>
+        : sq.length < 8 ? "Not previewed yet. Write a description, then press Preview under it."
+        : !key.trim() ? <>Not previewed yet. <button type="button" className="link" onClick={focusKey}>Add your OpenAI key</button> under the description, then press Preview.</>
+        : <>Not previewed yet. <button type="button" className="link" onClick={preview}>Preview it now</button>, or press Preview under the description.</>}
+    </p>
+  );
   const status = running || (
     <div className="lane-status">
       {shown?.source === "saved" ? (
-        <p>
-          Saved example run from {new Date(shown.run.created).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}, no key needed.{" "}
-          <button type="button" className="link" aria-expanded={rerun} onClick={() => setRerun(!rerun)}>Run it yourself</button>
-        </p>
+        <p>Saved example run from {new Date(shown.run.created).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}, no key needed. Press Preview under the description to run it yourself.</p>
       ) : stats && (
         <p>Your run: {stats.calls} hours checked for ${stats.cost_usd.toFixed(4)}, a median of {stats.latency_ms.median} ms each.{stats.refusals > 0 ? ` The model declined ${stats.refusals} answers; a declined answer counts as not met.` : ""}</p>
       )}
-      {rerun && shown?.source === "saved" && keyBox}
     </div>
   );
 
@@ -407,11 +433,13 @@ function CreateAlert({ d }: { d: Hourly }) {
       <div className="examples">
         <span className="label">Start from an example</span>
         <div className="chips" role="group" aria-label="Examples">
-          {d.weeks.map((w) => (
-            <button key={w.start} type="button" className="chip" aria-pressed={isExample(w)} onClick={() => loadExample(w)}
+          {examples.map((w) => (
+            <button key={w.file} type="button" className="chip" aria-pressed={isExample(w)} onClick={() => loadExample(w)}
               title={weekLabel(weekOf(d, w.start))}>{w.title}</button>
           ))}
         </div>
+        <span className="or">or</span>
+        <button type="button" className="chip own" aria-pressed={!examples.some((w) => w.example === sq)} onClick={writeOwn}>Write your own</button>
       </div>
 
       <div className="builder">
@@ -446,7 +474,7 @@ function CreateAlert({ d }: { d: Hourly }) {
             ) : (
               <>
                 <Field label="Describe the condition">
-                  <textarea className="input" rows={3} value={sentence} maxLength={300} onChange={(e) => setSentence(e.target.value)}
+                  <textarea ref={sentenceRef} className="input" rows={3} value={sentence} maxLength={300} onChange={(e) => setSentence(e.target.value)}
                     aria-label="Describe the condition" placeholder="Tell me when…" />
                 </Field>
                 <p className="hint">
@@ -454,6 +482,7 @@ function CreateAlert({ d }: { d: Hourly }) {
                   <button type="button" onClick={() => setSample(!sample)} aria-expanded={sample}>{sample ? "Hide the example hour" : "See an example hour"}</button>
                 </p>
                 {sample && <p className="sample">{snapshot(d, week.from + 20)}</p>}
+                {keyBox}
               </>
             )}
           </Section>
@@ -481,7 +510,7 @@ function CreateAlert({ d }: { d: Hourly }) {
             thrValues={thrValues} thrFlags={thrFlags} thrNotes={thrNotes} run={shown?.run ?? null} semNotes={semNotes}
             caption={suggested ? <><b>{suggested.title}.</b> {suggested.note}</>
               : unusual ? null : "Nothing unusual this week by these measures, which makes it a good test of whether an alert stays quiet."}
-            loading={loading} empty={running || (loading ? <p className="runner muted">Loading the example run…</p> : keyBox)} status={status} />
+            loading={loading} empty={running || prompt} status={status} />
         </section>
 
         <div className="card f2">
@@ -494,8 +523,7 @@ function CreateAlert({ d }: { d: Hourly }) {
               <Toggle on={emailOn} onChange={setEmailOn} label={emailOn ? "On" : "Off"} />
             </div>
             <Callout>
-              Sentence alerts can say why they fired: each notification carries a one-line reason written from the same row.{" "}
-              <a href={`${BASE}#t=20:10`}>See examples from July 22</a>
+              Sentence alerts can say why they fired: each notification carries the model's answer and the numbers it read.
             </Callout>
           </Section>
 

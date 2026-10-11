@@ -1,229 +1,253 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Panel, makeX, useWidth, type Tick } from "./chart";
-import { cooldown, cutoffs, evaluate, parse, thresholdHit } from "./rule";
-import { AlertCol, Answers, BASE, ChartIcon, Field, Mail, Quiet, Section, Shell, ThresholdCheck, gw, orNA, pct, usd } from "./site";
-import type { Demo, IndexEntry } from "./types";
+import { Panel, makeX, spans, useWidth, type Tick, type XScale } from "./chart";
+import { cutoffs, evaluate, parse } from "./rule";
+import { AlertCol, Answers, BASE, Mail, Quiet, Section, Shell, gw, orNA, pct, usd } from "./site";
+import { dayLabel, hourLabel, weekLabel, weekOf, type Hourly, type SuggestedWeek, type Week } from "./explore/data";
+import { FEATURED_WEEK, RULES } from "./explore/featured";
+import type { WeekRun } from "./explore/run";
+import { checkedValues, holds, notifications, seriesOf, type Threshold } from "./explore/series";
 
-const TZ = "America/Chicago";
-const clock = (iso: string) => new Date(iso).toLocaleTimeString("en-US", { timeZone: TZ, hour: "numeric", minute: "2-digit" });
-/** "20:10" in Central time, for #t= links. */
-const hhmm = (iso: string) =>
-  new Date(iso).toLocaleTimeString("en-GB", { timeZone: TZ, hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
-const gwTick = (v: number) => `${Math.round(v / 1000)}`;
+const deg = (f: number) => `${Math.round(f)}°F`;
+const mwh = (x: number) => `${usd(x)}/MWh`;
+const shortDay = (date: string) => `${dayLabel(date, { weekday: "short" })} ${Number(date.slice(8))}`;
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+const list = (xs: string[]) => (xs.length < 3 ? xs.join(" and ") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
+const fmt = (t: Threshold, v: number | null) => {
+  const u = seriesOf(t).unit;
+  return orNA(v, (x) => (u === "°F" ? deg(x) : u === "$/MWh" ? mwh(x) : `${Math.round(x).toLocaleString("en-US")} MW`));
+};
 
-// The July 22 threshold alert in the alert form's own terms.
-const OP_LABEL: Record<string, string> = { ">": "Greater than", ">=": "Greater than or equal to", "<": "Less than", "<=": "Less than or equal to" };
-const SERIES_LABEL: Record<string, string> = { load_mw: "ERCOT Load: load" };
-const THRESHOLD_NAME = "ERCOT load above 90 GW";
-const SENTENCE_NAME = "ERCOT scarcity watch";
+interface Rule { part: string; line: string; t: Threshold; values: (number | null)[]; flags: boolean[] }
+interface Moment { k: number; title: string; body: string }
 
-interface Moment { idx: number; title: string; body: string }
+/** The day that hour k of the week falls on. */
+const dayAt = (w: Week, k: number) => w.days.find((x) => w.from + k < x.first_hour + x.hours) ?? w.days[w.days.length - 1];
 
-/** Five moments of the day, with captions read from the data at each one. */
-function moments(d: Demo, prob: number[], semFired: number[], thrFired: number[]): Moment[] {
+/** Alerts that watch reserves (the reserves line itself, or the price of reserves). */
+const watchesReserves = (r: Rule) => r.t.series === "prc" || r.t.series === "nspin";
+
+/** Three hours that show the difference, found in the data: the priciest hour the sentence let pass, its
+ *  first notification, and the week's lowest reserves. */
+function moments(d: Hourly, w: Week, rules: Rule[], P: (number | null)[], ruleTrue: boolean[], first: number | undefined): Moment[] {
   const s = d.series;
-  const at = (label: string) => Math.max(0, d.t.findIndex((t) => clock(t) === label));
-  const P = (i: number) => pct(prob[i]);
-  const v = (k: string, i: number, f: (x: number) => string) => orNA(s[k][i], f);
-  const mwh = (x: number) => `${usd(x)}/MWh`;
-  const a = thrFired[0] ?? at("2:55 PM");
-  const b = s.load_mw.reduce<number>((best, x, i) => (x !== null && x > (s.load_mw[best] ?? -1) ? i : best), 0);
-  const f = semFired[0] ?? at("8:10 PM");
-  const m = at("8:45 PM");
-  const z = s.hub_rt_price.reduce<number>((best, x, i) => (x !== null && x > (s.hub_rt_price[best] ?? -1) ? i : best), 0);
-  const next = semFired.find((i) => i > m);
-  const last = [...semFired].reverse().find((i) => i <= z);
-  return [
-    { idx: a, title: "Demand crosses 90 GW",
-      body: `The threshold alert notifies you. The model puts the chance that ERCOT is heading toward scarcity at ${P(a)}: reserves are ${v("prc_mw", a, gw)} and the hub price is ${v("hub_rt_price", a, mwh)}.` },
-    { idx: b, title: "An all-time record",
-      body: `Demand peaks at ${v("load_mw", b, gw)}. The threshold alert has notified you ${thrFired.filter((i) => i <= b).length} times and repeats every 30 minutes. The sentence alert stays quiet at ${P(b)}, because reserves are still ${v("prc_mw", b, gw)}.` },
-    { idx: f, title: "The sentence alert fires",
-      body: `Solar is down to ${v("solar_mw", f, gw)}, batteries are covering ${v("battery_discharge_mw", f, gw)}, and reserves have fallen to ${v("prc_mw", f, gw)}. The model's answer reaches ${P(f)}. The threshold alert is silent: demand has dropped to ${v("load_mw", f, gw)}.` },
-    { idx: m, title: "A weak spot",
-      body: `Reserves are still near ${v("prc_mw", m, gw)}, but the model's answer has fallen back to ${P(m)}.${next !== undefined ? ` It doesn't fire again until ${clock(d.t[next])}.` : ""} The answer is jumpy from one row to the next.` },
-    { idx: z, title: "The tightest moment",
-      body: `The hub price hits ${v("hub_rt_price", z, mwh)}, non-spinning reserve ${v("nspin_price", z, mwh)}, and reserves are down to ${v("prc_mw", z, gw)}. The model says ${P(z)}.${last !== undefined && last !== z ? ` No new notification: the last one, at ${clock(d.t[last])}, is inside the 30-minute timeout.` : ""}` },
-  ];
+  const at = (k: number) => w.from + k;
+  const on = (k: number) => rules.filter((r) => r.flags[k]);
+  const hours = P.map((_, k) => k);
+  const by = (ks: number[], score: (k: number) => number) => ks.reduce((best, k) => (score(k) > score(best) ? k : best), ks[0]);
+  const a = by(hours.filter((k) => !ruleTrue[k]), (k) => s.hub_max[at(k)] ?? -Infinity);
+  const c = by(hours, (k) => -(s.prc_min[at(k)] ?? Infinity));
+  const reserveAlerts = (k: number) => on(k).filter(watchesReserves);
+  const out: Moment[] = [];
+  if (a !== undefined) out.push({ k: a, title: "Expensive, not short",
+    body: `The hub price reaches ${orNA(s.hub_max[at(a)], mwh)}, and ${list(on(a).map((r) => r.line))} ${on(a).length === 1 ? "notifies" : "notify"} you. Reserves are ${orNA(s.prc[at(a)], gw)}, so the model rates the hour ${pct(P[a] ?? 0)} and the sentence stays quiet.` });
+  if (first !== undefined && first !== c) out.push({ k: first, title: reserveAlerts(first).length ? "The sentence notifies" : "Ahead of the thresholds",
+    body: `Reserves fall from ${orNA(s.prc[at(first) - 1], gw)} to a low of ${orNA(s.prc_min[at(first)], gw)} within the hour, and the price reaches ${orNA(s.hub_max[at(first)], mwh)}. ${reserveAlerts(first).length ? `${list(reserveAlerts(first).map((r) => r.line))} fires too.` : "Neither reserves alert has fired."} The model rates it ${pct(P[first] ?? 0)} and the sentence notifies you.` });
+  if (c !== undefined) {
+    const never = rules.filter((r) => watchesReserves(r) && !r.flags.some(Boolean));
+    out.push({ k: c, title: "The shortage",
+      body: `Reserves bottom out at ${orNA(s.prc_min[at(c)], gw)}, the price hits ${orNA(s.hub_max[at(c)], mwh)} and non-spin ${orNA(s.nspin_max[at(c)], mwh)}. ${reserveAlerts(c).length ? `${list(reserveAlerts(c).map((r) => r.line))} fires now` : "No reserves alert fires"}${never.length ? `; ${list(never.map((r) => r.line))} never does` : ""}. The model rates it ${pct(P[c] ?? 0)}.` });
+  }
+  return out.sort((x, y) => x.k - y.k);
 }
 
-function Outcome({ n, children }: { n: number; children: ReactNode }) {
+/** The threshold alerts as rows of true and false over the week, on the same axis as the curve below. */
+function Strips({ X, rules, any, idx, onHover, onPick, dividers }: {
+  X: XScale; rules: Rule[]; any: boolean[]; idx: number;
+  onHover: (k: number | null) => void; onPick: (k: number) => void; dividers: number[];
+}) {
+  const H = 11, G = 5;
+  const rows = [...rules.map((r) => ({ label: r.line, flags: r.flags, any: false })), { label: `Any of the ${rules.length}`, flags: any, any: true }];
+  const yOf = (j: number) => j * (H + G) + (j === rows.length - 1 ? 6 : 0);
+  const height = yOf(rows.length - 1) + H + 2;
+  const half = X.step / 2;
+  const at = (e: React.MouseEvent<SVGRectElement>) => X.invert(e.clientX - (e.currentTarget.ownerSVGElement as SVGSVGElement).getBoundingClientRect().left);
   return (
-    <div className="outcome">
-      <div className="outcome-n">{n} <small>notification{n === 1 ? "" : "s"}</small></div>
-      <p>{children}</p>
+    <svg className="strips" width={X.width} height={height} role="img"
+      aria-label={`The threshold alerts, hour by hour: ${rules.map((r) => `${r.line}, true in ${r.flags.filter(Boolean).length} hours`).join("; ")}.`}>
+      {dividers.map((i) => <line key={i} className="divider" x1={X.x(i) - half} x2={X.x(i) - half} y1={0} y2={height} />)}
+      {rows.map((r, j) => (
+        <g key={r.label} className={r.any ? "strip any" : "strip"}>
+          <text className="strip-label" x={X.left - 8} y={yOf(j) + H - 1.5} textAnchor="end">{r.label}</text>
+          <rect className="strip-bg" x={X.left} y={yOf(j)} width={X.width - X.left - X.right} height={H} rx={2} />
+          {spans(r.flags).map(([a, b]) => (
+            <rect key={a} className="strip-on" x={Math.max(X.left, X.x(a) - half)} y={yOf(j)}
+              width={Math.min(X.width - X.right, X.x(b) + half) - Math.max(X.left, X.x(a) - half)} height={H} rx={2} />
+          ))}
+          <text className="strip-n" x={X.width - X.right + 6} y={yOf(j) + H - 1.5}>{r.flags.filter(Boolean).length}h</text>
+        </g>
+      ))}
+      <line className="cross" x1={X.x(idx)} x2={X.x(idx)} y1={0} y2={height} />
+      <rect x={X.left} y={0} width={X.width - X.left - X.right} height={height} fill="transparent" style={{ cursor: "crosshair" }}
+        onPointerMove={(e) => onHover(at(e))} onPointerDown={(e) => onHover(at(e))} onPointerLeave={() => onHover(null)} onClick={(e) => onPick(at(e))} />
+    </svg>
+  );
+}
+
+/** A heading over one side's chart: which alerts, how their logic works, and how many notifications they sent. */
+function Side({ tone, title, n, children }: { tone: "thr" | "sem"; title: ReactNode; n: number; children: ReactNode }) {
+  return (
+    <div className="side">
+      <div>
+        <h3 className="side-title"><span className={`key-dot ${tone}`} />{title}</h3>
+        <p>{children}</p>
+      </div>
+      <div className="side-n"><b>{n}</b>notification{n === 1 ? "" : "s"}</div>
     </div>
   );
 }
 
-function Story({ d }: { d: Demo }) {
+function Story({ d, run, ex }: { d: Hourly; run: WeekRun; ex: SuggestedWeek }) {
+  const week = useMemo(() => weekOf(d, run.week), [d, run.week]);
+  const n = week.to - week.from;
   const [ref, width] = useWidth<HTMLDivElement>();
-  const X = useMemo(() => makeX(d.t.length, width), [d.t.length, width]);
-  const tree = useMemo(() => parse(d.alert.rule, d.alert.questions), [d]);
-  const primary = d.alert.questions.find((q) => q.id === d.alert.primary)!;
-  const cut = cutoffs(tree, primary.id)[0] ?? null;
-  const thr = d.alert.baseline_threshold;
+  const narrow = width < 560;
+  const X = useMemo(() => makeX(n, width, narrow ? 108 : 124, narrow ? 30 : 34), [n, width, narrow]);
+  const tree = useMemo(() => parse(run.compiled.rule, run.compiled.questions), [run]);
+  const primary = run.compiled.primary;
+  const primaryQ = run.compiled.questions.find((q) => q.id === primary)!;
+  const P = useMemo(() => run.answers.map((a) => (a && !a[primary].refused ? a[primary].probs.yes : null)), [run, primary]);
+  const cut = cutoffs(tree, primary)[0];
   const s = d.series;
-  const prob = useMemo(() => d.decisions.map((a) => a[primary.id].probs.yes ?? 0), [d, primary.id]);
+  const at = (k: number) => week.from + k;
 
-  // Every notification is recomputed here from the model's answers, and checked against the pipeline's run.
-  const ruleTrue = useMemo(() => d.decisions.map((a) => evaluate(tree, a, d.alert.questions)), [d, tree]);
-  const thrTrue = useMemo(() => s[thr.series].map((v) => thresholdHit(thr, v)), [s, thr]);
-  const semFired = useMemo(() => cooldown(ruleTrue, d.t, d.cooldown_minutes), [ruleTrue, d]);
-  const thrFired = useMemo(() => cooldown(thrTrue, d.t, d.cooldown_minutes), [thrTrue, d]);
-  const parity = JSON.stringify([semFired, thrFired, ruleTrue]) === JSON.stringify([d.fired.semantic, d.fired.threshold, d.rule_true]);
+  // Both sides are recomputed here: the sentence from the model's saved answers (and checked against the
+  // saved run), the threshold alerts from the data, each hour checked the way the alert form would.
+  const ruleTrue = useMemo(() => run.answers.map((a) => !!a && evaluate(tree, a, run.compiled.questions)), [run, tree]);
+  const parity = JSON.stringify(ruleTrue) === JSON.stringify(run.rule_true);
+  const semNotes = useMemo(() => notifications(ruleTrue, null), [ruleTrue]);
+  const rules = useMemo<Rule[]>(() => RULES.map(({ part, line, ...t }) => {
+    const values = checkedValues(d, t, week.from, week.to);
+    return { part, line, t, values, flags: values.map((v) => holds(t, v)) };
+  }), [d, week]);
+  const any = useMemo(() => rules[0].flags.map((_, k) => rules.some((r) => r.flags[k])), [rules]);
+  const thrNotes = rules.reduce((sum, r) => sum + notifications(r.flags, null).length, 0);
 
-  const steps = useMemo(() => moments(d, prob, semFired, thrFired), [d, prob, semFired, thrFired]);
-  const fromHash = () => {
-    const m = location.hash.match(/t=(\d{1,2}):?(\d{2})/);
-    return m ? d.t.findIndex((t) => hhmm(t) === `${m[1].padStart(2, "0")}:${m[2]}`) : -1;
-  };
-  const [pinned, setPinned] = useState(() => (fromHash() >= 0 ? fromHash() : steps[0].idx));
+  // How close the reserves line came to mattering: the week's lowest reserves, and what half a gigawatt
+  // more would have caught.
+  const reserveLine = rules.find((r) => r.t.series === "prc");
+  const lowest = Math.min(...s.prc_min.slice(week.from, week.to).filter((v): v is number => v !== null));
+  const nearMiss = reserveLine ? reserveLine.values.filter((v) => v !== null && v < reserveLine.t.value + 500).length : 0;
+  const first = semNotes[0];
+  const firstReserve = rules.filter(watchesReserves).map((r) => r.flags.indexOf(true)).filter((k) => k >= 0).sort((x, y) => x - y)[0];
+  const ahead = first !== undefined && firstReserve !== undefined ? firstReserve - first : 0;
+  const sorted = P.filter((p): p is number => p !== null).sort((x, y) => x - y);
+  const typical = sorted[Math.floor(sorted.length / 2)] ?? 0;
+
+  const steps = useMemo(() => moments(d, week, rules, P, ruleTrue, first), [d, week, rules, P, ruleTrue, first]);
+  const skipped = steps.find((m) => m.title === "Expensive, not short");
+  const [pinned, setPinned] = useState(() => steps[0]?.k ?? 0);
   const [hover, setHover] = useState<number | null>(null);
-  const idx = hover ?? pinned;
-  const pin = (i: number) => {
-    const k = Math.max(0, Math.min(d.t.length - 1, i));
-    setPinned(k);
-    setHover(null);
-    history.replaceState(null, "", `#t=${hhmm(d.t[k])}`);
-  };
-
-  useEffect(() => {
-    const onHash = () => { const k = fromHash(); if (k >= 0) { setPinned(k); setHover(null); } };
-    window.addEventListener("hashchange", onHash);
-    return () => window.removeEventListener("hashchange", onHash);
-  });
+  const k = hover ?? pinned;
+  const pin = (x: number) => { setPinned(Math.max(0, Math.min(n - 1, x))); setHover(null); };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement).closest("input, textarea, select")) return;
-      if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
-        e.preventDefault();
-        pin(pinned + (e.key === "ArrowRight" ? 1 : -1) * (e.shiftKey ? 12 : 1));
-      }
+      if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+      e.preventDefault();
+      pin(pinned + (e.key === "ArrowRight" ? 1 : -1) * (e.shiftKey ? 24 : 1));
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  const hourTicks: Tick[] = d.t.flatMap((iso, i) => {
-    const t = new Date(iso);
-    const h = Number(t.toLocaleString("en-US", { timeZone: TZ, hour: "numeric", hour12: false })) % 24;
-    return t.getUTCMinutes() === 0 && h % (width < 560 ? 6 : 3) === 0
-      ? [{ i, label: h === 0 ? "12 am" : h === 12 ? "noon" : `${h % 12} ${h < 12 ? "am" : "pm"}` }] : [];
-  });
-  const moment = steps.findIndex((m) => m.idx === idx);
-  const ex = d.explanations[d.t[idx]];
-  const thrSent = thrFired.includes(idx);
-  const semSent = semFired.includes(idx);
-  const when = `${clock(d.t[idx])} CT, Jul 22`;
-  const stats = d.decision_stats;
-  const between = (idxs: number[]) => (idxs.length ? `${clock(d.t[idxs[0]])} to ${clock(d.t[idxs[idxs.length - 1]])}` : "");
-  const prcAt = (idxs: number[]) => idxs.map((i) => s.prc_mw[i]).filter((v): v is number => v !== null);
-  const range = (vals: number[]) => `${(Math.min(...vals) / 1000).toFixed(1)}–${(Math.max(...vals) / 1000).toFixed(1)} GW`;
-  // How low reserves went after the threshold alert's last notification.
-  const lowAfter = Math.min(...prcAt(d.t.map((_, i) => i).filter((i) => i > thrFired[thrFired.length - 1])));
-  const thrValue = (x: number) => Math.round(x).toLocaleString("en-US");
-  const thrMW = (x: number) => `${thrValue(x)} MW`;
+  const i = at(k);
+  const day = dayAt(week, k);
+  const when = (m: number) => `${shortDay(dayAt(week, m).date)}, ${hourLabel(d, at(m))}`;
+  const moment = steps.findIndex((m) => m.k === k);
+  const dividers = week.days.slice(1).map((x) => x.first_hour - week.from);
+  const axis: Tick[] = week.days.map((x) => ({ i: x.first_hour - week.from + Math.floor(x.hours / 2), label: narrow ? String(Number(x.date.slice(8))) : shortDay(x.date) }));
+  const trueNow = rules.filter((r) => r.flags[k]);
+  const notedDays = [...new Set(semNotes.map((m) => dayAt(week, m).date))];
+  const notedHours = semNotes.map((m) => hourLabel(d, at(m)));
 
   return (
     <>
       <header className="page-head">
-        <p className="eyebrow">Proposed enhancement to Grid Status alerts</p>
-        <h1>Alerts that check what you mean</h1>
+        <p className="eyebrow">A feature concept for Grid Status alerts</p>
+        <h1>Alerts for situations, not just numbers</h1>
         <p className="lede">
-          Today an alert watches one series against one value. This adds a second option: describe the condition in a sentence,
-          and get notified only when it's true.
+          Grid Status alerts are Boolean: one series against one line. Customers think in situations. Here is one, written as a
+          single alert and run on a real winter freeze, next to the threshold alerts it would take today.
         </p>
       </header>
 
-      <div className="card" id="replay">
-        <Section title="July 22, 2026" help={<>
-          ERCOT set an all-time demand record at 4:55 PM, but the grid didn't get tight until the evening. Here is the same worry
-          set up both ways, checked on every 5-minute row of the day. <a href={d.scenario.blog_url}>Grid Status's write-up of the day</a>
-        </>}>
-          <div className="compare">
-            <div className="option">
-              <div className="option-head"><span className="key-dot thr" />Threshold<span className="muted">· available today</span></div>
-              <div className="series-row">
-                <Field label="Select Series"><div className="input locked"><span>{SERIES_LABEL[thr.series] ?? thr.series}</span><ChartIcon /></div></Field>
-                <Field label="Is"><div className="input locked"><span>{OP_LABEL[thr.op]}</span></div></Field>
-                <Field label="Value"><div className="input locked"><span>{thr.value}</span></div></Field>
-              </div>
-              <Outcome n={thrFired.length}>
-                {between(thrFired)}, while reserves were {range(prcAt(thrFired))}. None after that, as reserves fell
-                to {gw(lowAfter)} in the evening.
-              </Outcome>
-            </div>
-            <div className="option">
-              <div className="option-head"><span className="key-dot sem" />Describe it<span className="badge">New</span></div>
-              <Field label="Describe the condition"><div className="input locked tall">{d.alert.sentence}</div></Field>
-              <Outcome n={semFired.length}>
-                {between(semFired)}, as reserves fell from {orNA(s.prc_mw[semFired[0]], gw)} to {orNA(s.prc_mw[semFired[semFired.length - 1]], gw)}.
-                None during the record afternoon.
-              </Outcome>
-            </div>
-          </div>
-          <p className="key-note">
-            Both alerts use a {d.cooldown_minutes}-minute Notification Timeout. In the charts, dots are notifications, shading
-            marks rows where the condition held, and the dashed line is where each alert notifies.
-          </p>
+      <div className="card">
+        <Section title={`Winter freeze: ${weekLabel(week)}`} help={ex.note}>
+          <figure className="featured">
+            <blockquote className="input locked tall"><span className="key-dot sem" />{ex.example}</blockquote>
+            <figcaption>What a demand-response aggregator would write: it cuts customers' load only in a real shortage, and a
+              price spike alone isn't one.</figcaption>
+          </figure>
 
-          <div className="panels" ref={ref}>
-            <Panel X={X} idx={idx} pinned={pinned} onHover={setHover} onPick={pin} label="ERCOT load through the day, with the threshold and its notifications"
-              title={<><span className="key-dot thr" />Threshold <span className="muted">· ERCOT Load: load, GW, notifies above {thr.value / 1000}</span></>} value={orNA(s.load_mw[idx], gw)}
-              values={s.load_mw} yFmt={gwTick} height={92} shade={thrTrue} tone="thr" markers={thrFired}
-              markerLabel={(i) => `Threshold notification at ${clock(d.t[i])}`}
-              refLine={{ value: thr.value, tone: "thr" }} />
-            <Panel X={X} idx={idx} pinned={pinned} onHover={setHover} onPick={pin} label="The model's answer through the day, with the cutoff and notifications"
-              title={<><span className="key-dot sem" />Describe it <span className="muted">· the model's answer to “{primary.text}”{cut !== null ? `, notifies at ${pct(cut)}` : ""}</span></>} value={pct(prob[idx])}
-              values={prob} domain={[0, 1]} ticks={[0, 0.5, 1]} yFmt={pct} height={92} color="var(--sem)" shade={ruleTrue} tone="sem" markers={semFired}
-              markerLabel={(i) => `Sentence notification at ${clock(d.t[i])}`}
-              refLine={cut !== null ? { value: cut, tone: "sem" } : undefined} />
-            <Panel X={X} idx={idx} onHover={setHover} onPick={pin} label="Operating reserves through the day"
-              title={<>ERCOT PRC: prc, GW <span className="muted">· operating reserves; lower is tighter</span></>} value={orNA(s.prc_mw[idx], gw)}
-              values={s.prc_mw} yFmt={gwTick} height={60} axis={hourTicks} />
+          <div className="logic" ref={ref}>
+            <Side tone="thr" title={`Today: ${plural(RULES.length, "threshold alert")}, one per part of the sentence`} n={thrNotes}>
+              <b>Classical (Boolean) logic.</b> {list([...new Set(RULES.map((r) => `“${r.part}”`))])} each become a series and a
+              line. The form can't combine them or say “not just”, so each fires on its own: {any.filter(Boolean).length} of {n} hours
+              flagged.{reserveLine && !reserveLine.flags.some(Boolean)
+                ? ` Reserves never fell below ${gw(lowest)}, so the reserves alert at its usual line never fires${nearMiss ? `; half a gigawatt higher, it catches ${plural(nearMiss, "hour")}` : ""}.`
+                : ""}
+            </Side>
+            <Strips X={X} rules={rules} any={any} idx={k} onHover={setHover} onPick={pin} dividers={dividers} />
+            <Side tone="sem" title={<>Proposed: 1 sentence<span className="badge">New</span></>} n={semNotes.length}>
+              <b>Fuzzy logic.</b> “Short of reserves” has no line: it depends on how fast reserves are falling, how cold it is and
+              what prices are doing. The model gives every hour a degree of truth from all of it at once, and only the decision to
+              notify is a cutoff.
+            </Side>
+            <Panel X={X} idx={k} pinned={pinned} onHover={setHover} onPick={pin} dividers={dividers} axis={axis} height={96}
+              label={`The model's degree of truth for each hour, with its cutoff and the sentence alert's ${plural(semNotes.length, "notification")}`}
+              title={<>Degree of truth <span className="muted">· “{primaryQ.text}” · notifies at {pct(cut ?? 0.7)}</span></>} value={orNA(P[k], pct)}
+              values={P} domain={[0, 1]} ticks={[0, 0.5, 1]} yFmt={pct} color="var(--sem)" shade={ruleTrue} tone="sem"
+              markers={semNotes} markerLabel={(m) => `Notification, ${when(m)}`} refLine={cut !== undefined ? { value: cut, tone: "sem" } : undefined} />
+            <p className="logic-foot">
+              Most hours sit near {pct(typical)}.{skipped && ` The ${orNA(s.hub_max[at(skipped.k)], mwh)} hour, with ${orNA(s.prc[at(skipped.k)], gw)} of reserves, scored ${orNA(P[skipped.k], pct)}.`}
+              {semNotes.length > 0 && <> It notified {plural(semNotes.length, "time")}, on {list(notedDays.map(shortDay))} at {list(notedHours)}{ahead > 0 ? `, ${plural(ahead, "hour")} before any reserves alert` : ""}.</>}
+            </p>
           </div>
 
-          <div className="moments" role="group" aria-label="Moments of the day">
-            {steps.map((m, k) => (
-              <button key={k} type="button" className="moment" aria-pressed={k === moment} onClick={() => pin(m.idx)}>
-                <b>{clock(d.t[m.idx])}</b>{m.title}
+          <div className="moments" role="group" aria-label="Where they differ">
+            {steps.map((m, j) => (
+              <button key={m.k} type="button" className="moment" aria-pressed={j === moment} onClick={() => pin(m.k)}>
+                <b>{when(m.k)}</b>{m.title}
               </button>
             ))}
           </div>
 
           <div className="inspect" aria-live="polite">
             <div className="inspect-head">
-              <h3 className="inspect-time">{clock(d.t[idx])}{moment >= 0 && <> <span>{steps[moment].title}</span></>}</h3>
+              <h3 className="inspect-time">{dayLabel(day.date)} <span>{hourLabel(d, i)}{moment >= 0 ? ` · ${steps[moment].title}` : ""}</span></h3>
               <div className="facts">
-                <span>Demand <b>{orNA(s.load_mw[idx], gw)}</b></span>
-                <span>Reserves <b>{orNA(s.prc_mw[idx], gw)}</b></span>
-                <span>Hub price <b>{orNA(s.hub_rt_price[idx], (x) => `${usd(x)}/MWh`)}</b></span>
+                <span>Reserves <b>{orNA(s.prc[i], gw)}</b></span>
+                <span>Hub price <b>{orNA(s.hub[i], mwh)}</b></span>
+                <span>Non-spin <b>{orNA(s.nspin[i], mwh)}</b></span>
+                <span>Demand <b>{orNA(s.load[i], gw)}</b></span>
+                <span>Dallas <b>{orNA(s.temp_dfw[i], deg)}</b></span>
               </div>
             </div>
             {moment >= 0 && <p className="narrative">{steps[moment].body}</p>}
             <div className="cols">
-              <AlertCol tone="thr">
-                {thrSent
-                  ? <Mail tone="thr" name={THRESHOLD_NAME} when={when}>
-                      {SERIES_LABEL[thr.series] ?? thr.series} is {orNA(s[thr.series][idx], thrValue)}, {OP_LABEL[thr.op].toLowerCase()} {thr.value}.
-                    </Mail>
-                  : <Quiet>{thrTrue[idx] ? "Over the line, but inside the 30-minute timeout: no new notification." : "No notification."}</Quiet>}
-                <ThresholdCheck label={SERIES_LABEL[thr.series] ?? thr.series} value={orNA(s[thr.series][idx], thrMW)}
-                  met={thrTrue[idx]} needs={`${OP_LABEL[thr.op].toLowerCase()} ${thr.value}`} />
+              <AlertCol tone="thr" label={plural(RULES.length, "threshold alert")}>
+                {trueNow.length
+                  ? <p className="quiet hit">{trueNow.length} of {RULES.length} true: {plural(trueNow.length, "notification")}, one from each.</p>
+                  : <Quiet>None true: no notification.</Quiet>}
+                <ul className="checks">
+                  {rules.map((r) => (
+                    <li key={r.line} className={r.flags[k] ? "met" : ""}>
+                      <span>{r.flags[k] ? "✓" : "✗"} {r.line}</span><span className="val">{fmt(r.t, r.values[k])}</span>
+                    </li>
+                  ))}
+                </ul>
               </AlertCol>
-              <AlertCol tone="sem">
-                {semSent
-                  ? <Mail tone="sem" name={SENTENCE_NAME} when={when}>{ex?.kind === "fired" ? ex.text : `${primary.text} ${pct(prob[idx])} yes.`}</Mail>
-                  : <Quiet>{ruleTrue[idx] ? "Rule met, but inside the 30-minute timeout: no new notification." : "No notification."}</Quiet>}
-                {ex?.kind === "declined" && (
-                  <p className="why"><span className="muted">Why it stayed quiet, in gpt-6-luna's words: </span>{ex.text}</p>
-                )}
-                <Answers questions={d.alert.questions} answers={d.decisions[idx]} tree={tree} />
+              <AlertCol tone="sem" label="1 sentence">
+                {semNotes.includes(k)
+                  ? <Mail tone="sem" name={ex.name} when={`${when(k)} CT`}>
+                      {primaryQ.text} Yes, {orNA(P[k], pct)}. Reserves {orNA(s.prc[i], gw)} (low {orNA(s.prc_min[i], gw)}), hub {orNA(s.hub[i], mwh)} (high {orNA(s.hub_max[i], mwh)}), non-spin up to {orNA(s.nspin_max[i], mwh)}, {orNA(s.temp[i], deg)}.
+                    </Mail>
+                  : <Quiet>No notification.</Quiet>}
+                <Answers questions={run.compiled.questions} answers={run.answers[k]} tree={tree} />
                 <details className="read">
                   <summary>What the model read</summary>
-                  <p>{d.prose[idx]}</p>
+                  <p>{run.prose[k]}</p>
                 </details>
               </AlertCol>
             </div>
@@ -232,31 +256,30 @@ function Story({ d }: { d: Demo }) {
       </div>
 
       <div className="card">
-        <Section title="How it works" help="The sentence becomes questions once, when the alert is saved. After that, each new row costs one fast model call, and the decision is plain code.">
+        <Section title="How it works" help="A general-purpose classifier turns fuzzy, real-time grid conditions into a number an alert can act on. The model grades; code decides.">
           <div className="how">
             <div>
               <span className="n">1</span>
-              <h3>Describe it once</h3>
-              <p>gpt-6-luna turns the sentence into questions and a rule. A validator rejects anything that doesn't fit, such as a rule that wouldn't exclude “just setting demand records.”</p>
-              <ul>{d.alert.questions.map((q) => <li key={q.id}>{q.text}</li>)}</ul>
+              <h3>Compile the sentence once</h3>
+              <p>When the alert is saved, gpt-6-luna turns it into questions and a rule, checked by a validator before it's accepted. A sentence with “not just” must get a rule that rules that case out.</p>
+              <ul>{run.compiled.questions.map((q) => <li key={q.id}>{q.text} <span className="muted">({q.kind === "probability" ? "yes / no" : q.options.join(" · ")})</span></li>)}</ul>
             </div>
             <div>
               <span className="n">2</span>
-              <h3>Check every new row</h3>
-              <p>
-                Each row becomes a few sentences of grid data, using only what was known at that moment. OpenAI's Decisions
-                API answers with probabilities instead of text.
-              </p>
-              <div className="stats">
-                <div><b>{Math.round(stats.latency_ms.median)} ms</b><span>median per row</span></div>
-                <div><b>${stats.cost_usd.toFixed(3)}</b><span>for all {stats.calls} rows of July 22</span></div>
-              </div>
+              <h3>Grade every new row</h3>
+              <p>Each hour becomes a short snapshot of the grid, using only what was known then. OpenAI's Decisions API answers with probabilities, not text.</p>
+              {run.stats && (
+                <div className="stats">
+                  <div><b>{run.stats.latency_ms.median} ms</b><span>median per hour</span></div>
+                  <div><b>${run.stats.cost_usd.toFixed(3)}</b><span>for all {run.stats.calls} hours of the week</span></div>
+                </div>
+              )}
             </div>
             <div>
               <span className="n">3</span>
-              <h3>Notify in plain code</h3>
-              <p>The rule and the Notification Timeout decide, with no model involved. A sentence alert can also say why it fired, in one line written from the same row.</p>
-              <code className="rule">{d.alert.rule}</code>
+              <h3>Decide in plain code</h3>
+              <p>The rule and the Notification Timeout decide, with no model involved, so every notification can be tested and explained.</p>
+              <code className="rule">{run.compiled.rule}</code>
               <p className={`small ${parity ? "ok" : "bad"}`} style={{ marginTop: 8 }}>
                 {parity ? "✓ This page recomputed every notification from the model's answers. They match the saved run." : "✗ The recomputed notifications don't match the saved run."}
               </p>
@@ -265,8 +288,18 @@ function Story({ d }: { d: Demo }) {
         </Section>
       </div>
 
+      <div className="card">
+        <Section title="Why I built this">
+          <ul className="why-list">
+            <li><b>A gap worth closing.</b> Customers think in situations, like “short of reserves, not just expensive”, and today's alerts can't express one. This adds one option to the existing alert form, next to Threshold.</li>
+            <li><b>Built end to end on Grid Status data.</b> API pulls, the prompts and validator that compile a sentence, a static React app, and saved runs anyone can replay without a key.</li>
+            <li><b>Cheap, fast and checkable.</b> About a cent per week of hourly checks, decisions in plain code, and a page that verifies its own numbers.</li>
+          </ul>
+        </Section>
+      </div>
+
       <div className="card cta">
-        <p>Describe your own condition, pick any week from December 2025 to October 2026, and see when it would have notified you, next to a threshold.</p>
+        <p>Try this sentence on another week, or write your own, in the alert form.</p>
         <a className="btn" href={`${BASE}try/`}>Create an alert</a>
       </div>
     </>
@@ -274,25 +307,30 @@ function Story({ d }: { d: Demo }) {
 }
 
 export default function App() {
-  const [d, setD] = useState<Demo | null>(null);
+  const [data, setData] = useState<{ d: Hourly; run: WeekRun; ex: SuggestedWeek } | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`${BASE}demo/index.json`).then((r) => r.json())
-      .then(async ([entry]: IndexEntry[]) => setD(await fetch(`${BASE}${entry.file}`).then((r) => r.json())))
-      .catch((e) => setErr(String(e)));
+    Promise.all([
+      fetch(`${BASE}explore/ercot_hourly.json`).then((r) => r.json()),
+      fetch(`${BASE}explore/runs/${FEATURED_WEEK}.json`).then((r) => r.json()),
+    ]).then(([d, run]: [Hourly, WeekRun]) => {
+      const ex = d.weeks.find((w) => w.start === FEATURED_WEEK);
+      if (!ex || ex.example !== run.sentence) throw new Error(`no saved run of the ${FEATURED_WEEK} example`);
+      setData({ d, run, ex });
+    }).catch((e) => setErr(String(e)));
   }, []);
 
   return (
     <Shell page="overview" footer={
       <>
-        <p>Data from the Grid Status API{d ? ` (${d.datasets.join(", ")})` : ""}. Times are US Central.</p>
-        <p>Model: OpenAI gpt-6-luna, through the Decisions API for answers and the Responses API for the questions and notification text. This page replays a saved run and makes no API calls.</p>
+        <p>Hourly data from the Grid Status API{data ? ` (${data.d.datasets.join(", ")})` : ""}. Times are US Central.</p>
+        <p>Model: OpenAI gpt-6-luna, through the Responses API to compile the sentence and the Decisions API to grade each hour. This page replays a saved run and makes no API calls.</p>
       </>
     }>
       {err && <p className="bad page-head">Couldn't load the data: {err}</p>}
-      {!d && !err && <p className="muted page-head">Loading…</p>}
-      {d && <Story d={d} />}
+      {!data && !err && <p className="muted page-head">Loading…</p>}
+      {data && <Story d={data.d} run={data.run} ex={data.ex} />}
     </Shell>
   );
 }

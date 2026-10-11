@@ -1,9 +1,71 @@
 # Findings
 
-What happened when an alert written as a sentence ran against a real ERCOT day (July 22, 2026),
-compared with the threshold alert you'd write today. All numbers below come from the shipped run
-in `web/public/demo/`. Every gpt-6-luna request and response is cached in `data/cache/luna/`, so
-`make all` reproduces this run byte for byte. That was checked by diffing two full runs.
+What happened when alerts written as sentences ran against real ERCOT data. First, the Overview's
+alert, *"Warn me when the freeze is actually leaving ERCOT short of reserves, not just driving up
+prices"*, on one hourly week next to the threshold alerts it would take today (its saved run is
+`web/public/explore/runs/2026-01-22.json`). Then the pipeline's original test: a scarcity alert on
+every 5-minute row of July 22, 2026, compared with the threshold alert you'd write today. Those
+numbers come from the shipped run in `web/public/demo/`. Every gpt-6-luna request and response is
+cached (`data/cache/luna/` for the pipeline, `data/cache/luna-web/` for saved runs), so `make all`
+reproduces both byte for byte.
+
+## The Overview week: a winter freeze
+
+Jan 22–28, 2026. A hard freeze from the 24th to the 27th (down to 19°F demand-weighted, 13°F in
+Dallas) sent the hub price to $938/MWh on the 25th with about 14 GW of reserves to spare. The
+shortage came on the morning of the 28th: reserves fell to 5.7 GW and the price hit $1,350. Hourly
+data. Each threshold checks the hour's high for "≥" and ">", and its low for "<" and "≤", so it fires
+when any row in the hour would. Neither side uses a Notification Timeout.
+
+| | alert | notifications |
+|---|---|---|
+| Today | Dallas ≤ 32°F, for "the freeze" | 91 |
+| | Reserves < 5,500 MW, for "short of reserves" | 0 |
+| | Non-spin ≥ $100, for "short of reserves" | 2 (Wed 28, 7 and 8 AM) |
+| | Hub price > $300, for "driving up prices" | 22, on 5 days |
+| | **all four** | **115**, in 92 of 168 hours |
+| Proposed | the sentence | **2** (Wed 28, 6 and 7 AM) |
+
+- **The compile.** gpt-6-luna turned the sentence into "Is the freeze leaving ERCOT short of reserves
+  right now?" (yes/no) and "Which best describes the freeze's effect on ERCOT right now?" (short
+  reserves, higher prices only, nothing unusual), with the rule
+  `freeze_short_reserves >= 0.7 && freeze_effect.'short reserves' >= 0.7`, on the first attempt.
+- **It fired before the thresholds.** At 6 AM on the 28th reserves dropped from 10.2 GW to a low of
+  6.2 GW within the hour and the price reached $1,013/MWh. The model said 80%. No reserves alert had
+  fired; non-spin crossed $100 at 7 AM.
+- **The reserves line is a knife edge.** Reserves bottomed out at 5.7 GW. At 5,500 MW the reserves
+  alert never fires; at 6,000 MW it fires once, at 7 AM.
+- **The price and freeze alerts flood.** The price alert fired 22 times over five days, including
+  the $938 hour on Sun 25 at 6 PM with 14.1 GW of reserves, which the model rated 38%. The freeze
+  alert fired in 91 hours. Most hours score near 12% on the main question.
+- **One oddity.** The second question picked "short reserves" in some hours where the first said no
+  (94% at the $938 hour). The rule needs both, so the first question decides; the same pattern
+  showed on July 22 below.
+- **Cost and speed.** 168 Decisions API calls, 87,358 input tokens, $0.0087; median 168 ms, p95
+  229 ms, 8 in flight.
+
+One week and one compile; the cutoffs are what the compile chose. Set at the right line, a reserves
+alert comes close. The sentence's advantage is not having to know in advance which series and line
+mean "short", and not being notified every time prices or temperatures alone cross a line.
+
+### Other sentences tried for the Overview
+
+These ran on the same hourly data before the freeze sentence was chosen, about $0.05 in all.
+
+- *"Tell me when the grid is acting anomalous."* Too vague to judge. It sent 9 notifications on Aug
+  20–26 against 83 from eight thresholds, but ordinary hours sat near 42%, and "anomalous" has no
+  ground truth to check against.
+- *"Warn me when the evening gets tight as the batteries run down."* It compiled to "tight evening
+  hour" and "batteries discharging", which describe most summer evenings. It fired on 6 of 7
+  evenings of an ordinary week (Aug 3–9).
+- *"Tell me when ERCOT is actually short on power, not just expensive."* It never fired on the
+  freeze or the heat wave. The model read "short on power" as an actual shortage, which didn't
+  happen: reserves never fell below 5.4 GW.
+
+A sentence works when the snapshot can show what it asks about, it says what doesn't count
+("not just …"), and its words are as strong as the situation.
+
+## July 22, 2026: scarcity, not records
 
 **Models.** gpt-6-luna does everything. The OpenAI Decisions API (`POST /v1/decisions`) answers
 the questions on every 5-minute snapshot: 288 snapshots, one request each, two questions per
@@ -15,7 +77,7 @@ flight: median 154 ms, p95 841 ms, max 1,471 ms. In an earlier run of the same r
 median was 130 ms and the p95 211 ms. Treat the tail as network and service variance, not model
 cost.
 
-## Result
+### Result
 
 | | alert | fired |
 |---|---|---|
@@ -24,7 +86,7 @@ cost.
 
 Both alerts use a 30-minute re-fire cooldown, like Grid Status's Notification Timeout.
 
-## Where the sentence alert did better
+### Where the sentence alert did better
 
 - **It ignored the record.** All 8 threshold firings came while operating reserves (PRC) were
   16.5 to 17.7 GW, the hub price was under $82/MWh, and non-spin was about $0. The sentence
@@ -38,7 +100,7 @@ Both alerts use a 30-minute re-fire cooldown, like Grid Status's Notification Ti
   the sentence alert declined) passed both automatic checks on the first try: every number
   appears in the snapshot text, and none of them talks about the model instead of the grid.
 
-## Where it did worse
+### Where it did worse
 
 - **It's borderline and jumpy.** The 4 firings sit at P = 0.70 to 0.73 against a 0.7 cutoff.
   Between 8:20 and 9:10 PM, with reserves holding near 9 GW, P fell back to 0.21 to 0.58 before
@@ -68,7 +130,7 @@ Both alerts use a 30-minute re-fire cooldown, like Grid Status's Notification Ti
   (demand minus wind and solar)" after adding the removed battery output to it. That label was
   wrong. Fixing the label alone changed the simulated run from 2 firings to 5.
 
-## What-if: 8 GW of batteries offline
+### What-if: 8 GW of batteries offline
 
 Simulated by cutting battery discharge by up to 8 GW at every interval and adding the removed
 amount to net load. **Prices and reserves stay real**, so this tests how the model reads those
@@ -86,8 +148,8 @@ spike still shows, plus the observed temperature: the ERCOT average weighted by 
 zone's share of demand, and Dallas-Fort Worth and Houston. Each of the five suggested weeks has a
 saved run of an example alert in `web/public/explore/runs/`, made with the page's own code
 (`web/scripts/save_runs.ts`): 168 Decisions API calls per week, 87,000 to 113,000 input tokens
-($0.009 to $0.011), median 164 to 175 ms. Each alert was compiled fresh, so these are not the
-Overview page's compiled alert. Comparisons with earlier wordings and with snapshots before
+($0.009 to $0.011), median 164 to 175 ms. Each alert was compiled fresh, so the record-demand row
+is not July 22's compiled alert. Comparisons with earlier wordings and with snapshots before
 temperature was added come from earlier runs kept in the local request cache.
 
 | week | example alert | rule met |
@@ -168,10 +230,10 @@ none of that code or output remains.
 
 ## Limitations
 
-- One day is a demonstration, not an evaluation. No cutoff was tuned on labeled data; the cutoffs
-  are whatever the compile chose.
-- The Overview page replays a precomputed run. The Create alert page runs live with a visitor's own key;
-  its five saved runs are single samples, and gpt-6-luna doesn't repeat itself exactly.
+- One week and one day are a demonstration, not an evaluation. No cutoff was tuned on labeled
+  data; the cutoffs are whatever the compile chose.
+- The Overview page replays a saved run. The Create alert page runs live with a visitor's own key;
+  its saved runs are single samples, and gpt-6-luna doesn't repeat itself exactly.
 - The unusual-day flags on the Create alert page are fixed thresholds. They point at weeks worth trying;
   they are not labels to score an alert against.
 - Explanations are checked for invented numbers and for talking about the model, not for
