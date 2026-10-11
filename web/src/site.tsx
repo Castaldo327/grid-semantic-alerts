@@ -14,17 +14,21 @@ export const orNA = (v: number | null | undefined, f: (x: number) => string) => 
 
 type Theme = "system" | "light" | "dark";
 
+// Dark by default (index.html sets it too, so there's no light flash). The key changed from "theme"
+// because earlier visits saved "system" there, which would override the new default.
+const THEME_KEY = "theme-v2";
+
 function useTheme(): [Theme, () => void] {
   const [theme, setTheme] = useState<Theme>(() => {
-    try { return (localStorage.getItem("theme") as Theme) || "system"; } catch { return "system"; }
+    try { return (localStorage.getItem(THEME_KEY) as Theme) || "dark"; } catch { return "dark"; }
   });
   useEffect(() => {
     const root = document.documentElement;
     if (theme === "system") root.removeAttribute("data-theme");
     else root.setAttribute("data-theme", theme);
-    try { localStorage.setItem("theme", theme); } catch { /* storage unavailable */ }
+    try { localStorage.setItem(THEME_KEY, theme); } catch { /* storage unavailable */ }
   }, [theme]);
-  return [theme, () => setTheme((t) => (t === "system" ? "light" : t === "light" ? "dark" : "system"))];
+  return [theme, () => setTheme((t) => (t === "dark" ? "light" : t === "light" ? "system" : "dark"))];
 }
 
 const THEME_ICON: Record<Theme, ReactNode> = {
