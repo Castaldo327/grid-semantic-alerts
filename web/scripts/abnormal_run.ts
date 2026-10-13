@@ -3,10 +3,10 @@
 // not_abnormal; the hours it judges abnormal are grouped into episodes, and the Responses API writes the
 // notification each episode would send, then a digest of the week from those notifications.
 // It also checks the week's flagged readings (each day's tags: crossings of fixed alert lines like demand at or
-// above 90 GW) against the 30 days before the week. A reading of the grid's behavior (prices, reserves, demand)
-// is a verified grid abnormality only if it is more extreme than anything in that month, and caught if the
-// model judged its hour abnormal. Weather readings (temperature) are the grid's input, not its behavior: a
-// record is noted as a weather record but not scored, since the alert asks about the grid.
+// above 90 GW) against the 30 days before the week. Only the grid's own readings count (prices, reserves,
+// demand); temperature is weather, the grid's input rather than its behavior, and the alert asks about the
+// grid, so weather tags are left out. A reading is a verified grid abnormality only if it is more extreme than
+// anything in that month, and caught if the model judged its hour abnormal.
 // Written to public/demo/abnormal_2026-08-20.json. Requests are cached in ../data/cache/luna-web/, so a
 // re-run replays the same answers and spends nothing.
 // Run: node scripts/abnormal_run.ts   (needs OPENAI_API_KEY or OPEN_AI_KEY in ../.env)
@@ -93,23 +93,22 @@ try {
 
   // 3. The week's alert-line crossings, verified against the month before the week (no model involved).
   const SERIES: Record<string, { key: keyof Hourly["series"]; low: boolean }> = {
-    demand: { key: "load_max", low: false }, heat: { key: "temp", low: false }, price: { key: "hub_max", low: false },
+    demand: { key: "load_max", low: false }, price: { key: "hub_max", low: false },
     reserve_price: { key: "nspin_max", low: false }, reserves: { key: "prc_min", low: true },
   };
-  const readings = w.days.flatMap((day, j) => day.tags.map((t) => {
+  const readings = w.days.flatMap((day, j) => day.tags.filter((t) => t.kind in SERIES).map((t) => {
     const m = /around (\d{1,2}) (AM|PM)/.exec(t.text)!;
     const k = j * 24 + (Number(m[1]) % 12) + (m[2] === "PM" ? 12 : 0);
     const { key: sk, low } = SERIES[t.kind];
     const before = data.series[sk].slice(w.from - 720, w.from).filter((v): v is number => v !== null);
     const baseline = low ? Math.min(...before) : Math.max(...before);
     const value = data.series[sk][w.from + k]!;
-    const beyond = low ? value < baseline : value > baseline;
-    const weather = t.kind === "heat" || t.kind === "freeze";
-    return { date: day.date, kind: t.kind, text: t.text, k, value, baseline, beyond, weather, verified: beyond && !weather, p: p[k], caught: (p[k] ?? 0) >= CUTOFF };
+    const verified = low ? value < baseline : value > baseline;
+    return { date: day.date, kind: t.kind, text: t.text, k, value, baseline, verified, p: p[k], caught: (p[k] ?? 0) >= CUTOFF };
   }));
   const verified = readings.filter((r) => r.verified);
-  console.log(`readings: ${readings.length} crossings, ${verified.length} verified grid abnormalities, ${verified.filter((r) => r.caught).length} caught, ${readings.filter((r) => r.weather && r.beyond).length} weather records`);
-  for (const r of readings) console.log(`  ${r.verified ? "VERIFIED" : r.weather && r.beyond ? "weather " : "routine "} ${r.caught ? "caught" : "      "} p=${(r.p ?? 0).toFixed(2)}  ${r.date} ${r.text}  (month before: ${Math.round(r.baseline)})`);
+  console.log(`readings: ${readings.length} crossings, ${verified.length} verified grid abnormalities, ${verified.filter((r) => r.caught).length} caught`);
+  for (const r of readings) console.log(`  ${r.verified ? "VERIFIED" : "routine "} ${r.caught ? "caught" : "      "} p=${(r.p ?? 0).toFixed(2)}  ${r.date} ${r.text}  (month before: ${Math.round(r.baseline)})`);
 
   // 4. The positive summaries, passed back for a digest of the week.
   const { text: digestText, usage: digestUsage } = await generate(c, [

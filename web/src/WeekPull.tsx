@@ -1,9 +1,10 @@
 // The "pull" step's picture, in place of the notification settings: the Grid Status datasets coming in, then
-// the week they make up, Aug 20–26, 2026, a heat wave whose readings crossed fixed alert lines 17 times. Each
-// crossing is checked against the month before the week (scripts/abnormal_run.ts): a verified grid
-// abnormality if a grid reading went beyond anything in that month, a weather record if a temperature did
-// (the grid's input, not its behavior), routine otherwise. Each day shows its demand with a dot at the hour of
-// each crossing, solid for verified and hollow otherwise; hovering a day shows them in a brief below.
+// the week they make up, Aug 20–26, 2026, a heat wave in which ordinary threshold alerts on the grid's own
+// readings (prices, reserves, demand) fired 13 times. Each is checked against the month before the week
+// (scripts/abnormal_run.ts): verified abnormal if it went beyond anything in that month, routine if not.
+// Weather tags (temperature) are left out: they're the grid's input, not its behavior. Each day shows its
+// demand with a dot at the hour of each crossing, solid for verified and hollow for routine; hovering a day
+// shows them in a brief below.
 
 import { useEffect, useState, type CSSProperties } from "react";
 import type { DayTag } from "./explore/data";
@@ -32,6 +33,9 @@ function hourOf(t: DayTag): number | null {
   const m = /around (\d{1,2}) (AM|PM)/.exec(t.text);
   return m ? (Number(m[1]) % 12) + (m[2] === "PM" ? 12 : 0) : null;
 }
+/** The grid's own readings; temperature tags are weather, left out. */
+const GRID = new Set(["reserves", "price", "reserve_price", "demand", "negative", "wind"]);
+const gridTags = (tags: DayTag[]) => tags.filter((t) => GRID.has(t.kind));
 const weekday = (date: string, style: "short" | "long") => new Date(`${date}T12:00:00Z`).toLocaleDateString("en-US", { weekday: style, timeZone: "UTC" });
 
 export default function WeekPull({ active }: { active: boolean }) {
@@ -55,7 +59,7 @@ export default function WeekPull({ active }: { active: boolean }) {
   }, [active, week]);
 
   const [lo, hi] = week ? range(week.loads) : [0, 1];
-  const total = week ? week.days.reduce((n, d) => n + d.tags.length, 0) : 0;
+  const total = week ? week.days.reduce((n, d) => n + gridTags(d.tags).length, 0) : 0;
   const nVerified = run ? run.readings.filter((r) => r.verified).length : 0;
   const verifiedOn = (date: string) => (run ? run.readings.filter((r) => r.date === date && r.verified).length : 0);
   // Until a day is hovered, brief the one with the most verified abnormalities (the latest, on a tie).
@@ -93,16 +97,17 @@ export default function WeekPull({ active }: { active: boolean }) {
           <>
             <div className="wk-days" onMouseLeave={() => setHover(null)}>
               {week.days.map((d, j) => {
-                const hours = (v: boolean) => [...new Set(d.tags.filter((t) => !!verdict(d.date, t)?.verified === v).map(hourOf).filter((h): h is number => h !== null))];
+                const tags = gridTags(d.tags);
+                const hours = (v: boolean) => [...new Set(tags.filter((t) => !!verdict(d.date, t)?.verified === v).map(hourOf).filter((h): h is number => h !== null))];
                 const nv = verifiedOn(d.date);
                 return (
                   <button key={d.date} type="button" className={`wk-day${j === k ? " on" : ""}`} data-n={Math.min(nv, 4)}
                     style={{ "--k": j } as CSSProperties} onMouseEnter={() => setHover(j)} onFocus={() => setHover(j)}
-                    aria-label={`${weekday(d.date, "long")}, August ${Number(d.date.slice(8))}: ${nv} verified grid abnormalities of ${d.tags.length} alert-line crossings`}>
+                    aria-label={`${weekday(d.date, "long")}, August ${Number(d.date.slice(8))}: ${nv} verified abnormal of ${tags.length} threshold crossings`}>
                     <span className="tl-wd">{weekday(d.date, "short")}</span>
                     <b>{Number(d.date.slice(8))}</b>
                     <Curve loads={week.loads[j]} lo={lo} hi={hi} marks={hours(true)} rings={hours(false)} />
-                    <span className="wk-count">{d.tags.length ? <>{nv > 0 && <><i />{nv}</>}{d.tags.length - nv > 0 && <><i className="ring" />{d.tags.length - nv}</>}</> : "—"}</span>
+                    <span className="wk-count">{tags.length ? <>{nv > 0 && <><i />{nv}</>}{tags.length - nv > 0 && <><i className="ring" />{tags.length - nv}</>}</> : "—"}</span>
                   </button>
                 );
               })}
@@ -112,23 +117,23 @@ export default function WeekPull({ active }: { active: boolean }) {
               <div key={day.date} className="wk-brief">
                 <div className="wk-brief-head">
                   <b>{weekday(day.date, "long")}, August {Number(day.date.slice(8))}</b>
-                  <span>{day.tags.length ? `${verifiedOn(day.date)} verified grid abnormal${verifiedOn(day.date) === 1 ? "ity" : "ities"} of ${day.tags.length}` : "No alert lines crossed"}</span>
+                  <span>{gridTags(day.tags).length ? `${verifiedOn(day.date)} verified abnormal of ${gridTags(day.tags).length}` : "No thresholds crossed"}</span>
                   {hover === null && <span className="wk-hint">Hover a day</span>}
                 </div>
-                {day.tags.length ? (
+                {gridTags(day.tags).length ? (
                   <ul>
-                    {day.tags.map((t, i) => {
+                    {gridTags(day.tags).map((t, i) => {
                       const v = verdict(day.date, t);
                       return (
-                        <li key={t.text} className={v?.verified ? "verified" : v?.weather && v.beyond ? "weather" : "routine"} style={{ "--i": i } as CSSProperties}>
+                        <li key={t.text} className={v?.verified ? "verified" : "routine"} style={{ "--i": i } as CSSProperties}>
                           <span className={`wk-ico ${t.kind}`}><Icon d={KIND[t.kind] ?? FREEZE} size={15} stroke={1.75} /></span>
                           <span className="wk-text">{t.text}</span>
-                          <em>{v?.verified ? "Beyond the month before" : v?.weather && v.beyond ? "Weather record, not grid" : "Seen in the month before"}</em>
+                          <em>{v?.verified ? "Beyond the month before" : "Topped in the month before"}</em>
                         </li>
                       );
                     })}
                   </ul>
-                ) : <p className="wk-quiet">No reading crossed a line: demand stayed under 90 GW, the hub price under $300, reserves above 5.5 GW and the temperature below 100°F.</p>}
+                ) : <p className="wk-quiet">No threshold fired: demand stayed under 90 GW, the hub price under $300 and reserves above 5.5 GW.</p>}
               </div>
             )}
           </>

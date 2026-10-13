@@ -57,13 +57,9 @@ export function Curve({ loads, lo, hi, marks = [], rings = [], bands = [], scan 
   );
 }
 
-/** One of the week's alert-line crossings, checked against the month before the week (scripts/abnormal_run.ts):
- *  beyond anything in it or not; weather (temperature) or the grid's own behavior; and verified, a grid
- *  reading beyond the month before, the only kind the model is scored on. */
-export interface Reading {
-  date: string; kind: string; text: string; k: number; value: number; baseline: number;
-  beyond: boolean; weather: boolean; verified: boolean; p: number | null; caught: boolean;
-}
+/** One of the week's threshold crossings on a grid reading (prices, reserves, demand), checked against the
+ *  month before the week (scripts/abnormal_run.ts): verified abnormal if beyond anything in it. */
+export interface Reading { date: string; kind: string; text: string; k: number; value: number; baseline: number; verified: boolean; p: number | null; caught: boolean }
 export interface Episode { from: number; to: number; at: string; peak: number; p: number; headline: string; summary: string }
 /** The test run on Aug 20–26, 2026: gpt-6-luna's P(abnormal) for each hour, the notifications and digest it
  *  wrote, and the verified readings to score it against. */
@@ -73,6 +69,18 @@ export interface Run {
     calls: number; input_tokens: number; cost_usd: number; latency_ms: { median: number; p95: number };
     notifications: { calls: number; input_tokens: number; output_tokens: number }; digest: { input_tokens: number; output_tokens: number };
   };
+}
+
+/** The alert run over every hour in the dataset (scripts/abnormal_year.ts): how often it actually fires. */
+export interface Year { days: number; hours: number; abnormal_hours: number; episodes: number; episodes_per_year: number; input_tokens: number; cost_usd: number; from: string; to: string }
+let year: Promise<Year> | null = null;
+export function useYear(active: boolean): Year | null {
+  const [y, setY] = useState<Year | null>(null);
+  useEffect(() => {
+    if (!active || y) return;
+    (year ??= fetch(`${import.meta.env.BASE_URL}demo/abnormal_year.json`).then((x) => x.json())).then(setY).catch(() => {});
+  }, [active, y]);
+  return y;
 }
 
 let run: Promise<Run> | null = null;

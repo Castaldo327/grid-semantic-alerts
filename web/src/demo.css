@@ -434,7 +434,11 @@
 .wr-total { margin-top: 8px; font-size: 28px; font-weight: 650; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; line-height: 1.1; }
 .wr-total small { margin-left: 3px; font-size: 13px; font-weight: 500; color: var(--dimmed); letter-spacing: 0; }
 .wr-bar { display: block; height: 4px; margin: 10px 0 10px; border-radius: 2px; background: var(--filled); overflow: hidden; }
-.wr-bar i { display: block; height: 100%; border-radius: 2px; background: linear-gradient(90deg, var(--data), var(--rule)); transform-origin: left; animation: grow 1.4s calc(0.6s + var(--i) * 0.15s) var(--ease-out) both; transform: scaleX(0); }
+.wr-bar { display: flex; gap: 1px; }
+.wr-bar i { display: block; height: 100%; border-radius: 2px; transform-origin: left; animation: grow 1.4s calc(0.6s + var(--i) * 0.15s) var(--ease-out) both; transform: scaleX(0); }
+.wr-bar i.dec, .wr-card i.api.dec { background: var(--data); }
+.wr-bar i.res, .wr-card i.api.res { background: var(--rule); }
+.wr-card i.api { display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 2px; vertical-align: 0; }
 .wr-card dl { display: grid; gap: 4px; margin: 0; }
 .wr-card dl div { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
 .wr-card dt { color: var(--dimmed); }

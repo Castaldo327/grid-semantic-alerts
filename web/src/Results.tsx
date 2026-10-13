@@ -1,8 +1,8 @@
 // The test run's results, in place of the notification settings (scripts/abnormal_run.ts wrote them to
 // public/demo/abnormal_2026-08-20.json). "judge": a scan sweeps the week hour by hour as gpt-6-luna's
 // answers come in, banding the hours it judged abnormal and scoring it against the week's verified grid
-// abnormalities (grid readings beyond anything in the month before; weather records aren't scored): each
-// turns caught or missed as the scan passes. "notify": the notifications gpt-6-luna wrote for the hours it flagged, under the digest it wrote
+// abnormalities (grid readings beyond anything in the month before): each turns caught or missed as the scan
+// passes. "notify": the notifications gpt-6-luna wrote for the hours it flagged, under the digest it wrote
 // from them, the ones covering a verified abnormality marked so.
 
 import { useEffect, useState, type CSSProperties } from "react";
@@ -60,8 +60,6 @@ export default function Results({ mode }: { mode: "judge" | "notify" | null }) {
   const caught = passed.filter((r) => r.caught).length;
   const covers = (e: { from: number; to: number }) => verified.some((r) => r.k >= e.from && r.k <= e.to);
   const extra = run ? run.episodes.filter((e) => e.to < judged && !covers(e)).length : 0;
-  const weather = run ? run.readings.filter((r) => r.weather && r.beyond) : [];
-  const weatherFlagged = weather.filter((r) => r.k < judged && r.caught).length;
 
   return (
     <div className={`timeline rs${active ? " on" : ""}`} aria-hidden={!active}>
@@ -108,9 +106,9 @@ export default function Results({ mode }: { mode: "judge" | "notify" | null }) {
 
             <div className={`rs-stats${done ? " done" : ""}`}>
               <div className="good"><b>{caught}<small> / {verified.length}</small></b><span>grid abnormalities caught</span></div>
-              <div className="calm"><b>{weatherFlagged}<small> / {weather.length}</small></b><span>heat records flagged</span></div>
-              <div className="hot"><b>{extra}</b><span>extra flags</span></div>
-              <div><b>${run.stats.cost_usd.toFixed(4)}</b><span>{judged < 168 ? `judging hour ${judged} of 168…` : `${run.stats.latency_ms.median} ms an hour`}</span></div>
+              <div className="hot"><b>{extra}</b><span>flags of its own</span></div>
+              <div><b>{run.stats.latency_ms.median}<small> ms</small></b><span>{judged < 168 ? `judging hour ${judged} of 168…` : "median per hour"}</span></div>
+              <div><b>${run.stats.cost_usd.toFixed(4)}</b><span>for the whole week</span></div>
             </div>
           </>
         ) : (

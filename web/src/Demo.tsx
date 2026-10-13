@@ -46,7 +46,7 @@ const STEPS: Step[] = [
     eyebrow: "Alerts today",
     title: ["Today, every alert is a ", { text: "hard-coded rule", mark: "rule" }, "."],
     body: [
-      "One series, one comparison, one number. Each new row is either true or false. That works for a clean threshold, but it may not capture what a customer actually needs to know, especially on data as ",
+      "You pick a series, a comparison and a number, and every new row either passes or it doesn’t. That’s fine for a clean threshold, but it may not capture what a customer actually wants to know, especially on data as ",
       { text: "messy and volatile", mark: "noise" },
       " as the US electric grid.",
     ],
@@ -78,9 +78,9 @@ const STEPS: Step[] = [
     eyebrow: "A different kind of alert",
     title: ["What if an alert could make a ", { text: "judgment call", mark: "fuzzy" }, "?"],
     body: [
-      "A System 1 model judges the way an experienced operator reads a screen: fast, intuitive, taking in everything at once. Ask it a question about each new row and it returns a ",
+      "Think of how an experienced grid operator glances at a screen and just knows something’s off. A System 1 model works the same way. Ask it a question about each new row and it gives back a ",
       { text: "probability", mark: "fuzzy" },
-      ", a structured answer in a fraction of a second, for a fraction of a cent. So an alert no longer needs a series, a comparison and a number. Just describe it.",
+      " in a fraction of a second, for a fraction of a cent. So the alert doesn’t need a series, a comparison and a number anymore. You just describe what you’re looking for.",
     ],
     spot: "prompt",
   },
@@ -101,9 +101,9 @@ const STEPS: Step[] = [
     eyebrow: "Run the test",
     title: ["Let’s run it on a real week."],
     body: [
-      "I pulled seven days of ERCOT data from the Grid Status API: August 20 to 26, 2026, a heat wave. Alert lines like demand at 90 GW or prices at $300 tripped 17 times. A grid reading counts as abnormal here only if it went beyond anything in the month before the week, and ",
-      { text: "6 did", mark: "hot" },
-      ": record prices and record-low reserves. 3 more were record heat, which is weather, the grid’s input rather than its behavior. The other 8, mostly 90 GW afternoons, were an ordinary August. Hover a day to see which.",
+      "I pulled seven days of ERCOT data from the Grid Status API: August 20 to 26, 2026, the middle of a heat wave. Ordinary threshold alerts on price, reserves and demand would have fired 13 times that week. But a threshold firing doesn’t mean something was abnormal, so I checked each one against the month before. Only ",
+      { text: "6 went past anything in it", mark: "hot" },
+      ": record prices and record-low reserves. The other 7, mostly demand above 90 GW, had already been topped that month. Hover a day to see which.",
     ],
     spot: "pull",
   },
@@ -112,8 +112,8 @@ const STEPS: Step[] = [
     title: ["The model read all 168 hours."],
     body: [
       "Each hourly snapshot went to gpt-6-luna with the same question and the same two answers, at a median of 131 milliseconds an hour and well under a cent for the week. It caught ",
-      { text: "all 6 grid abnormalities", mark: "hot" },
-      ", every record price and reserve reading, each at 99%. It let the record heat and the six 90 GW afternoons pass, since weather alone isn’t the grid misbehaving. And it raised 6 smaller flags of its own: evening reserve drops that set no record.",
+      { text: "all 6", mark: "hot" },
+      ", every record price and reserve reading, each at 99%, and stayed quiet through the 90 GW afternoons. It also raised 6 flags of its own: five evenings when reserves fell 4 to 6 GW within an hour as the sun went down, and one early-morning dip. None set a record. Those are judgment calls, and the cutoff is how you’d tune them.",
     ],
     spot: "judge",
   },
@@ -131,7 +131,7 @@ const STEPS: Step[] = [
     eyebrow: "The cost",
     title: ["Always on, for pocket change."],
     body: [
-      "Every number here comes from the test run: about 374 tokens per judgment, and 650 in and 290 out per write-up, at gpt-6-luna’s $0.10 and $0.50 per million tokens. Judging every five minutes, around the clock, and writing up a heat wave’s worth of notifications every week, comes to ",
+      "Every number comes from the test run. Nearly all the cost is the judging: one Decisions API call per snapshot, about 374 input tokens at $0.10 per million, with no output to pay for. The write-ups through the Responses API add pennies: run on every hour since December, the alert fired 187 times in 308 days, about 222 notifications a year. Judging every five minutes, around the clock, and writing up every one of those, comes to ",
       { text: "about $4 a year", mark: "hot" },
       " per alert. Every minute is under $20.",
     ],
