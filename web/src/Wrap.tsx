@@ -87,9 +87,9 @@ export default function Wrap({ mode }: { mode: "cost" | "value" | null }) {
           <div className="tl-head">
             <span className="tl-title">One alert, all year</span>
             <span className="tl-crumbs">
-              <span>{run.model}</span>
-              <span className="crumb-in">Decisions API {usd(USD_IN)} / 1M in</span>
-              <span className="crumb-in">Responses API {usd(USD_IN)} in, {usd(USD_OUT)} out</span>
+              <span>OpenAI Decisions API</span>
+              <span className="crumb-in">{usd(USD_IN)} / 1M tokens in, no output billed</span>
+              <span className="crumb-in">write-ups: Responses API</span>
             </span>
           </div>
           <div className="wr-cards">
@@ -117,7 +117,7 @@ export default function Wrap({ mode }: { mode: "cost" | "value" | null }) {
             <div><b>~{yr.episodes_per_year}</b><span>notifications a year: it fired {yr.episodes} times in {yr.days} days</span></div>
           </div>
           <p className="wr-foot">
-            Measured, not assumed: the same alert ran on all {yr.hours.toLocaleString("en-US")} hours from Dec 2025 to Oct 2026. Each judgment is one Decisions API call, {Math.round(yr.input_tokens / yr.hours)} input tokens on average, no output billed. Write-ups are Responses API calls: one notification per episode it raised ({yr.episodes} in {yr.days} days, about {yr.episodes_per_year} a year) plus a weekly digest. Assumes a snapshot the same size at every cadence.
+            Measured, not assumed: the same alert ran on all {yr.hours.toLocaleString("en-US")} hours from Dec 2025 to Oct 2026. Each judgment is one Decisions API call, {Math.round(yr.input_tokens / yr.hours)} input tokens on average, no output billed. Write-ups are Responses API calls: one notification per episode it raised ({yr.episodes} in {yr.days} days, about {yr.episodes_per_year} a year) plus a weekly digest. Both APIs ran {run.model}. Assumes a snapshot the same size at every cadence.
           </p>
         </>
       ) : (
@@ -136,7 +136,7 @@ export default function Wrap({ mode }: { mode: "cost" | "value" | null }) {
             ))}
           </div>
           <div className="wr-sign">
-            <span>Built on Grid Status data with gpt-6-luna’s Decisions API.</span>
+            <span>Built on Grid Status data with OpenAI’s Decisions API.</span>
             <a href={`mailto:${EMAIL}`}>{EMAIL}</a>
           </div>
         </>

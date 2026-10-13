@@ -1,8 +1,8 @@
 // The test run's results, in place of the notification settings (scripts/abnormal_run.ts wrote them to
-// public/demo/abnormal_2026-08-20.json). "judge": a scan sweeps the week hour by hour as gpt-6-luna's
+// public/demo/abnormal_2026-08-20.json). "judge": a scan sweeps the week hour by hour as the Decisions API's
 // answers come in, banding the hours it judged abnormal and scoring it against the week's verified grid
 // abnormalities (grid readings beyond anything in the month before): each turns caught or missed as the scan
-// passes. "notify": the notifications gpt-6-luna wrote for the hours it flagged, under the digest it wrote
+// passes. "notify": the notifications the Responses API wrote for the hours it flagged, under the digest it wrote
 // from them, the ones covering a verified abnormality marked so.
 
 import { useEffect, useState, type CSSProperties } from "react";
@@ -65,7 +65,7 @@ export default function Results({ mode }: { mode: "judge" | "notify" | null }) {
     <div className={`timeline rs${active ? " on" : ""}`} aria-hidden={!active}>
       {ready && <>
         <div className="tl-head">
-          <span className="tl-title">{mode === "notify" ? "What the alert sent" : "gpt-6-luna, hour by hour"}</span>
+          <span className="tl-title">{mode === "notify" ? "What the alert sent" : "Decisions API, hour by hour"}</span>
           <span className="tl-crumbs">
             <span>Aug 20 – 26, 2026</span>
             <span className="crumb-in">168 snapshots</span>
@@ -114,7 +114,7 @@ export default function Results({ mode }: { mode: "judge" | "notify" | null }) {
         ) : (
           <div className="rs-inbox">
             <div className="rs-digest">
-              <div className="rs-digest-head"><Icon d={SPARKLES} size={16} stroke={1.75} /><b>Your week, in brief</b><span>Digest written by {run.model}</span></div>
+              <div className="rs-digest-head"><Icon d={SPARKLES} size={16} stroke={1.75} /><b>Your week, in brief</b><span>Written with the Responses API</span></div>
               <p>{run.digest}</p>
             </div>
             <ul className="rs-notes">

@@ -121,7 +121,7 @@ export default function Snapshots({ active }: { active: boolean }) {
             <span>Prices · load · reserves · wind · solar · weather</span>
           </span>
           <span className="tl-arrow" aria-hidden="true" />
-          <span className="tl-model">System 1</span>
+          <span className="tl-model">Decisions API</span>
           <span className="tl-answers"><code>abnormal</code><code>not_abnormal</code></span>
         </div>
       </div>

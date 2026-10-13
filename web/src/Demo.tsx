@@ -78,7 +78,7 @@ const STEPS: Step[] = [
     eyebrow: "A different kind of alert",
     title: ["What if an alert could make a ", { text: "judgment call", mark: "fuzzy" }, "?"],
     body: [
-      "Think of how an experienced grid operator glances at a screen and just knows something’s off. A System 1 model works the same way. Ask it a question about each new row and it gives back a ",
+      "Think of how an experienced grid operator glances at a screen and just knows something’s off. That’s the kind of fast, System 1 judgment OpenAI’s Decisions API is built for. Ask it a question about each new row and it gives back a ",
       { text: "probability", mark: "fuzzy" },
       " in a fraction of a second, for a fraction of a cent. So the alert doesn’t need a series, a comparison and a number anymore. You just describe what you’re looking for.",
     ],
@@ -89,7 +89,7 @@ const STEPS: Step[] = [
     title: ["Picture an ERCOT abnormality alert."],
     body: [
       { text: "Every five minutes", mark: "snap" },
-      ", a snapshot of the grid (prices, load, reserves, wind, solar and weather) goes to a System 1 model with a finite set of answers: ",
+      ", a snapshot of the grid (prices, load, reserves, wind, solar and weather) goes to OpenAI’s Decisions API with a finite set of answers: ",
       { text: "abnormal", mark: "code" },
       " or ",
       { text: "not_abnormal", mark: "code" },
@@ -111,7 +111,7 @@ const STEPS: Step[] = [
     eyebrow: "The judgment",
     title: ["The model read all 168 hours."],
     body: [
-      "Each hourly snapshot went to gpt-6-luna with the same question and the same two answers, at a median of 131 milliseconds an hour and well under a cent for the week. It caught ",
+      "Each hourly snapshot went to the Decisions API with the same question and the same two answers, at a median of 131 milliseconds an hour and well under a cent for the week. It caught ",
       { text: "all 6", mark: "hot" },
       ", every record price and reserve reading, each at 99%, and stayed quiet through the 90 GW afternoons. It also raised 6 flags of its own: five evenings when reserves fell 4 to 6 GW within an hour as the sun went down, and one early-morning dip. None set a record. Those are judgment calls, and the cutoff is how you’d tune them.",
     ],
@@ -121,7 +121,7 @@ const STEPS: Step[] = [
     eyebrow: "Write it up",
     title: ["Then a language model writes the alert."],
     body: [
-      "The hours it flagged, grouped into 9 episodes, went back to gpt-6-luna, which wrote each one up as a notification using only the numbers in its snapshots, then turned those into a digest of the week. A fast judgment decides ",
+      "The hours it flagged, grouped into 9 episodes, went to OpenAI’s Responses API, which wrote each one up as a notification using only the numbers in its snapshots, then turned those into a digest of the week. The Decisions API decides ",
       { text: "when to speak", mark: "fuzzy" },
       "; a language model decides what to say.",
     ],
@@ -141,7 +141,7 @@ const STEPS: Step[] = [
     eyebrow: "Why it matters",
     title: ["Alerts that understand the grid."],
     body: [
-      "Grid Status already has the data people trust. A System 1 layer lets them ask it questions in their own words, and get back a judgment in milliseconds, for a fraction of a cent, structured enough to test and audit. One sentence replaces a stack of thresholds, and every notification explains itself. It’s the kind of product I’d love to ",
+      "Grid Status already has the data people trust. OpenAI’s Decisions API lets them ask it questions in their own words, and get back a judgment in milliseconds, for a fraction of a cent, structured enough to test and audit. One sentence replaces a stack of thresholds, and every notification explains itself. It’s the kind of product I’d love to ",
       { text: "build at Grid Status", mark: "fuzzy" },
       ".",
     ],
