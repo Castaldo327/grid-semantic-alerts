@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-// Two pages: the July 22 story (/) and "Try it" (/try/).
+// Two pages: the alert form (/) and the earlier "Try it" concept (/try/).
 export default defineConfig({
   plugins: [react()],
   build: {

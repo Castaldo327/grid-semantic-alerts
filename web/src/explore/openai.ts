@@ -135,16 +135,17 @@ export async function decide(c: Client, input: string, questions: Question[]): P
 
 export type Message = { role: "system" | "user" | "assistant"; content: string };
 
-/** Generate JSON text with the Responses API (JSON mode). */
-export async function generate(c: Client, messages: Message[]): Promise<{ text: string; ms: number }> {
+/** Generate JSON text with the Responses API (JSON mode), with the tokens it used. */
+export async function generate(c: Client, messages: Message[]): Promise<{ text: string; ms: number; usage: { input: number; output: number } }> {
   const { json, ms } = await post(c, "/responses", { model: MODEL, input: messages, text: { format: { type: "json_object" } } });
-  if (typeof json.output_text === "string") return { text: json.output_text, ms };
+  const usage = { input: Number(json.usage?.input_tokens ?? 0), output: Number(json.usage?.output_tokens ?? 0) };
+  if (typeof json.output_text === "string") return { text: json.output_text, ms, usage };
   const parts = (json.output ?? [])
     .filter((o: { type: string }) => o.type === "message")
     .flatMap((o: { content?: { type: string; text?: string }[] }) => o.content ?? [])
     .filter((p: { type: string }) => p.type === "output_text")
     .map((p: { text: string }) => p.text);
-  return { text: parts.join(""), ms };
+  return { text: parts.join(""), ms, usage };
 }
 
 /** Run task(0..n-1) with at most `limit` in flight. Rejects on the first error. */
